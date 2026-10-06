@@ -26,6 +26,7 @@ async def init_pool() -> None:
         min_size=settings.DB_POOL_MIN_SIZE,
         max_size=settings.DB_POOL_MAX_SIZE,
         command_timeout=settings.DB_COMMAND_TIMEOUT,
+        max_inactive_connection_lifetime=60.0,   # recycle idle connections
         # Automatically decode UUIDs and JSON
         init=_init_connection,
     )

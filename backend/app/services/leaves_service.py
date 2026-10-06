@@ -386,59 +386,132 @@ async def get_pending_attendance_requests(
     ]
 
 
-async def review_attendance_request(
+async def get_all_requests_with_stats(
     db: asyncpg.Connection,
-    tenant_id: Union[str, uuid.UUID],
-    request_id: int,
+    tenant_id: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    search_query: Optional[str] = None,
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+):
+    query_parts = []
+    params = []
+    param_idx = 1
+
+    sql = """
+        SELECT ar.id, ar.tenant_id, t.name as company_name, ar.emp_id, ar.name,
+               ar.request_type, ar.date as request_date, NULL as to_date,
+               ar.reason, ar.status, ar.requested_at as applied_at,
+               ar.reviewed_by, ar.reviewed_at, ar.remarks
+        FROM attendance_requests ar
+        LEFT JOIN tenants t ON ar.tenant_id = t.id
+        WHERE 1=1
+    """
+
+    if tenant_id and tenant_id.upper() != 'ALL':
+        try:
+            t_uuid = _parse_uuid(tenant_id)
+            sql += f" AND ar.tenant_id = ${param_idx}"
+            params.append(t_uuid)
+            param_idx += 1
+        except Exception:
+            pass
+
+    if status_filter and status_filter.lower() != 'all status' and status_filter.lower() != 'all':
+        sql += f" AND LOWER(ar.status) = ${param_idx}"
+        params.append(status_filter.lower())
+        param_idx += 1
+
+    if search_query:
+        s_term = f"%{search_query.lower()}%"
+        sql += f" AND (LOWER(ar.name) LIKE ${param_idx} OR LOWER(ar.emp_id) LIKE ${param_idx} OR LOWER(t.name) LIKE ${param_idx})"
+        params.append(s_term)
+        param_idx += 1
+
+    if from_date:
+        sql += f" AND ar.date >= ${param_idx}"
+        params.append(from_date)
+        param_idx += 1
+
+    if to_date:
+        sql += f" AND ar.date <= ${param_idx}"
+        params.append(to_date)
+        param_idx += 1
+
+    sql += " ORDER BY ar.requested_at DESC"
+
+    rows = await db.fetch(sql, *params)
+
+    # Calculate overall stats across all tenant requests
+    stats_sql = "SELECT status, COUNT(*) as count FROM attendance_requests GROUP BY status"
+    stats_rows = await db.fetch(stats_sql)
+    
+    counts = {"pending": 0, "approved": 0, "rejected": 0}
+    for sr in stats_rows:
+        st = (sr["status"] or "").lower()
+        if st in counts:
+            counts[st] = int(sr["count"])
+            
+    total = sum(counts.values())
+    approved_pct = round((counts["approved"] / total * 100)) if total > 0 else 0
+    rejected_pct = round((counts["rejected"] / total * 100)) if total > 0 else 0
+    pending_pct = round((counts["pending"] / total * 100)) if total > 0 else 0
+
+    results = []
+    for r in rows:
+        results.append({
+            "id": r["id"],
+            "tenant_id": str(r["tenant_id"]),
+            "company_name": r["company_name"] or "Default Company",
+            "emp_id": r["emp_id"],
+            "name": r["name"],
+            "request_type": r["request_type"].replace('_', ' ').title(),
+            "request_date": r["request_date"].isoformat() if r["request_date"] else None,
+            "to_date": r["to_date"].isoformat() if r["to_date"] else None,
+            "reason": r["reason"] or "",
+            "status": (r["status"] or "pending").capitalize(),
+            "applied_at": r["applied_at"].isoformat() if r["applied_at"] else None,
+            "reviewed_by": r["reviewed_by"],
+            "reviewed_at": r["reviewed_at"].isoformat() if r["reviewed_at"] else None,
+            "remarks": r["remarks"],
+        })
+
+    return {
+        "success": True,
+        "requests": results,
+        "stats": {
+            "total": total,
+            "approved": counts["approved"],
+            "approved_pct": approved_pct,
+            "rejected": counts["rejected"],
+            "rejected_pct": rejected_pct,
+            "pending": counts["pending"],
+            "pending_pct": pending_pct,
+        }
+    }
+
+
+async def bulk_review_attendance_requests(
+    db: asyncpg.Connection,
+    request_ids: List[int],
     reviewer_name: str,
-    payload: LeaveReviewRequest,
-) -> AttendanceRequestResponse:
+    status: str,
+    remarks: Optional[str] = None,
+):
+    status_clean = status.lower()
+    if status_clean not in ("approved", "rejected"):
+        raise ValidationError("Status must be 'approved' or 'rejected'")
 
-    tenant_uuid = _parse_uuid(tenant_id)
-    status_clean = payload.status.lower()
-
-    row = await db.fetchrow("SELECT * FROM attendance_requests WHERE tenant_id = $1 AND id = $2", tenant_uuid, request_id)
-    if not row:
-        raise NotFoundError(f"Attendance request ID {request_id}")
-
-    updated = await db.fetchrow(
+    await db.execute(
         """
         UPDATE attendance_requests
         SET status = $1, reviewed_by = $2, reviewed_at = NOW(), remarks = $3
-        WHERE tenant_id = $4 AND id = $5
-        RETURNING *
+        WHERE id = ANY($4::int[])
         """,
         status_clean,
         reviewer_name,
-        payload.remarks,
-        tenant_uuid,
-        request_id,
+        remarks,
+        request_ids,
     )
+    return {"success": True, "updated_count": len(request_ids)}
 
-    # If approved, insert entry punch in attendance_logs
-    if status_clean == "approved":
-        await db.execute(
-            """
-            INSERT INTO attendance_logs (tenant_id, emp_id, name, date, time, event_type, confidence)
-            VALUES ($1, $2, $3, $4, '09:00:00', 'entry', 1.0)
-            """,
-            tenant_uuid,
-            updated["emp_id"],
-            updated["name"],
-            updated["date"],
-        )
-
-    return AttendanceRequestResponse(
-        id=updated["id"],
-        tenant_id=str(updated["tenant_id"]),
-        emp_id=updated["emp_id"],
-        name=updated["name"],
-        request_type=updated["request_type"],
-        request_date=updated["date"],
-        reason=updated["reason"],
-        status=updated["status"],
-        applied_at=updated["requested_at"],
-        reviewed_by=updated["reviewed_by"],
-        reviewed_at=updated["reviewed_at"],
-        remarks=updated["remarks"],
-    )

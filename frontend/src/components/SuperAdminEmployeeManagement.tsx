@@ -254,7 +254,7 @@ export const SuperAdminEmployeeManagement: React.FC = () => {
 
 
 
-  const renderRingChart = (percent: number, color: string) => {
+  const renderRingChart = (percent: number, strokeColor: string = '#ffffff') => {
     const size = 52;
     const strokeWidth = 5;
     const radius = (size - strokeWidth) / 2;
@@ -268,7 +268,7 @@ export const SuperAdminEmployeeManagement: React.FC = () => {
             cx={size / 2}
             cy={size / 2}
             r={radius}
-            stroke="#e2e8f0"
+            stroke="rgba(255,255,255,0.25)"
             strokeWidth={strokeWidth}
             fill="none"
           />
@@ -276,7 +276,7 @@ export const SuperAdminEmployeeManagement: React.FC = () => {
             cx={size / 2}
             cy={size / 2}
             r={radius}
-            stroke={color}
+            stroke={strokeColor}
             strokeWidth={strokeWidth}
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
@@ -285,7 +285,7 @@ export const SuperAdminEmployeeManagement: React.FC = () => {
             style={{ transition: 'stroke-dashoffset 0.5s ease-in-out' }}
           />
         </svg>
-        <span style={{ position: 'absolute', fontSize: '.76rem', fontWeight: 800, color: '#0f172a' }}>
+        <span style={{ position: 'absolute', fontSize: '.76rem', fontWeight: 800, color: '#ffffff' }}>
           {percent}%
         </span>
       </div>
@@ -369,7 +369,7 @@ export const SuperAdminEmployeeManagement: React.FC = () => {
         }
         .btn-refresh:hover { background: #f1f5f9; color: #0f172a; }
 
-        /* KPI Overview Cards */
+        /* KPI Overview Cards - Rich Vibrant Gradients */
         .emp-kpi-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
@@ -377,46 +377,50 @@ export const SuperAdminEmployeeManagement: React.FC = () => {
           margin-bottom: 24px;
         }
         .emp-kpi-card {
-          background: #ffffff;
-          border: 1px solid #e2e8f0;
-          border-radius: 14px;
-          padding: 16px 20px;
-          box-shadow: 0 2px 10px rgba(0,0,0,.02);
-          transition: all .2s ease;
+          border-radius: 16px;
+          padding: 20px 22px;
+          position: relative;
+          overflow: hidden;
+          box-shadow: 0 4px 20px rgba(0,0,0,.08);
+          transition: transform .18s, box-shadow .18s;
         }
         .emp-kpi-card:hover {
-          border-color: #cbd5e1;
-          box-shadow: 0 6px 18px rgba(0,0,0,.05);
-          transform: translateY(-1px);
+          transform: translateY(-3px);
+          box-shadow: 0 8px 28px rgba(0,0,0,.14);
+        }
+        .emp-kpi-card::before {
+          content: '';
+          position: absolute;
+          top: -20px;
+          right: -20px;
+          width: 90px;
+          height: 90px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.12);
         }
         .card-accent-blue {
-          border-left: 4px solid #3b82f6;
-          background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+          background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
         }
         .card-accent-green {
-          border-left: 4px solid #10b981;
-          background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
         }
         .card-accent-rose {
-          border-left: 4px solid #f43f5e;
-          background: linear-gradient(135deg, #ffffff 0%, #fff1f2 100%);
+          background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
         }
         .emp-kpi-icon {
-          width: 44px;
-          height: 44px;
-          border-radius: 12px;
+          width: 46px;
+          height: 46px;
+          border-radius: 14px;
           display: flex;
           align-items: center;
           justify-content: center;
           flex-shrink: 0;
+          background: rgba(255, 255, 255, 0.22);
+          color: #ffffff;
+          backdrop-filter: blur(4px);
         }
-        .kpi-blue { background: #eff6ff; color: #2563eb; }
-        .kpi-green { background: #dcfce7; color: #059669; }
-        .kpi-purple { background: #f5f3ff; color: #7c3aed; }
-        .kpi-amber { background: #fffbeb; color: #d97706; }
-        .kpi-rose { background: #fee2e2; color: #dc2626; }
-        .emp-kpi-val { font-size: 1.65rem; font-weight: 800; color: #0f172a; line-height: 1.1; }
-        .emp-kpi-lbl { font-size: .88rem; font-weight: 700; color: #334155; margin-top: 3px; }
+        .emp-kpi-val { font-size: 1.85rem; font-weight: 900; color: #ffffff; line-height: 1.1; text-shadow: 0 1px 4px rgba(0,0,0,.15); }
+        .emp-kpi-lbl { font-size: .78rem; font-weight: 700; color: rgba(255, 255, 255, 0.85); margin-top: 3px; text-transform: uppercase; letter-spacing: .04em; }
 
 
 
@@ -835,12 +839,12 @@ export const SuperAdminEmployeeManagement: React.FC = () => {
             {/* Card 1: Total SaaS Employees */}
             <div className="emp-kpi-card card-accent-blue">
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <div className="emp-kpi-icon kpi-blue">
+                <div className="emp-kpi-icon">
                   <Users size={24} />
                 </div>
                 <div>
                   <div className="emp-kpi-val">{totalEmployees}</div>
-                  <div className="emp-kpi-lbl" style={{ fontSize: '.92rem', fontWeight: 700, color: '#334155' }}>Total SaaS Employees</div>
+                  <div className="emp-kpi-lbl">Total SaaS Employees</div>
                 </div>
               </div>
             </div>
@@ -849,16 +853,16 @@ export const SuperAdminEmployeeManagement: React.FC = () => {
             <div className="emp-kpi-card card-accent-green">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div className="emp-kpi-icon kpi-green">
+                  <div className="emp-kpi-icon">
                     <ScanFace size={24} />
                   </div>
                   <div>
-                    <div className="emp-kpi-val" style={{ color: '#059669' }}>{totalEnrolled}</div>
-                    <div className="emp-kpi-lbl" style={{ fontSize: '.92rem', fontWeight: 700, color: '#334155' }}>Face Photo Enrolled</div>
+                    <div className="emp-kpi-val">{totalEnrolled}</div>
+                    <div className="emp-kpi-lbl">Face Photo Enrolled</div>
                   </div>
                 </div>
 
-                {renderRingChart(enrolledPercent, '#10b981')}
+                {renderRingChart(enrolledPercent, '#ffffff')}
               </div>
             </div>
 
@@ -866,16 +870,16 @@ export const SuperAdminEmployeeManagement: React.FC = () => {
             <div className="emp-kpi-card card-accent-rose">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div className="emp-kpi-icon kpi-rose">
+                  <div className="emp-kpi-icon">
                     <AlertCircle size={24} />
                   </div>
                   <div>
-                    <div className="emp-kpi-val" style={{ color: '#dc2626' }}>{totalPending}</div>
-                    <div className="emp-kpi-lbl" style={{ fontSize: '.92rem', fontWeight: 700, color: '#334155' }}>Pending Face Photo</div>
+                    <div className="emp-kpi-val">{totalPending}</div>
+                    <div className="emp-kpi-lbl">Pending Face Photo</div>
                   </div>
                 </div>
 
-                {renderRingChart(pendingPercent, '#f43f5e')}
+                {renderRingChart(pendingPercent, '#ffffff')}
               </div>
             </div>
           </div>

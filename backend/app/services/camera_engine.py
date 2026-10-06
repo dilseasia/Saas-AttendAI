@@ -95,40 +95,60 @@ class BackgroundQueue:
         return True
 
 
-# ── 3. RTSP CONNECTION FACTORY ──────────────────────────────────────
-def create_rtsp_connection(rtsp_url: str, timeout_ms: int = 10000) -> Optional[cv2.VideoCapture]:
+# ── 3. MOTION DETECTOR & RTSP CONNECTION FACTORY ────────────────────
+MOTION_PREV_FRAMES: Dict[str, np.ndarray] = {}
+MOTION_THRESHOLD = 2000
+
+def has_motion(frame: np.ndarray, camera_key: str) -> bool:
     """
-    Creates an optimized RTSP Video Capture stream with TCP fallback,
-    minimal buffering latency, and timeout parameters.
+    Lightweight motion check using frame differencing (CPU, ~0.5ms).
+    Returns True only if significant motion detected.
+    Skip InsightFace entirely if no motion — huge CPU saving!
     """
-    logger.info("🔗 Connecting to camera RTSP stream: %s", rtsp_url[:40])
+    global MOTION_PREV_FRAMES
+    if frame is None or frame.size == 0:
+        return False
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (9, 9), 0)
+
+    prev = MOTION_PREV_FRAMES.get(camera_key)
+    MOTION_PREV_FRAMES[camera_key] = gray
+
+    if prev is None:
+        return True  # First frame — process it
+
+    diff = cv2.absdiff(prev, gray)
+    _, thresh = cv2.threshold(diff, 20, 255, cv2.THRESH_BINARY)
+    motion_score = int(np.sum(thresh) / 255)
+
+    return motion_score > MOTION_THRESHOLD
+
+
+def create_rtsp_connection(rtsp_url: str, timeout_ms: int = 5000) -> Optional[cv2.VideoCapture]:
+    """
+    Creates an optimized RTSP Video Capture stream with minimal buffering latency.
+    """
+    logger.info("🔗 Connecting to camera RTSP stream: %s", rtsp_url[:60])
     
-    rtsp_tcp_url = rtsp_url + ("&tcp" if "?" in rtsp_url else "?tcp")
-    attempts = [
-        (rtsp_tcp_url, "TCP transport"),
-        (rtsp_url, "Default transport"),
-    ]
+    try:
+        cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, timeout_ms)
+        cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, timeout_ms)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 15)
 
-    for attempt_url, method in attempts:
-        try:
-            cap = cv2.VideoCapture(attempt_url, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, timeout_ms)
-            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, timeout_ms)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            cap.set(cv2.CAP_PROP_FPS, 15)
+        if cap.isOpened():
+            ret, test_frame = cap.read()
+            if ret and test_frame is not None:
+                logger.info("✅ Camera RTSP stream connected successfully")
+                return cap
+            cap.release()
+    except Exception as exc:
+        logger.warning("⚠️ Connection attempt failed: %s", exc)
 
-            if cap.isOpened():
-                ret, test_frame = cap.read()
-                if ret and test_frame is not None:
-                    logger.info("✅ Connection established via %s", method)
-                    return cap
-                cap.release()
-        except Exception as exc:
-            logger.warning("⚠️ Connection attempt failed via %s: %s", method, exc)
-
-    logger.error("❌ Failed to connect to camera RTSP feed after all retries")
+    logger.error("❌ Failed to connect to camera RTSP feed")
     return None
 
 
@@ -146,9 +166,9 @@ class TenantEmbeddingCache:
         """Reloads embeddings for a single tenant from DB."""
         rows = await db.fetch(
             """
-            SELECT fe.emp_id AS emp_db_id, fe.embedding, e.emp_id, e.name
+            SELECT e.id AS emp_db_id, fe.embedding, e.emp_id, e.name
             FROM face_embeddings fe
-            JOIN employees e ON e.id = fe.emp_id
+            JOIN employees e ON (e.emp_id = fe.emp_id AND e.tenant_id = fe.tenant_id)
             WHERE fe.tenant_id = $1 AND e.is_active = TRUE
             """,
             tenant_id,
@@ -195,6 +215,7 @@ class TenantEmbeddingCache:
         similarities = np.dot(vectors, face_emb) / (norm_v * norm_f + 1e-6)
         best_idx = int(np.argmax(similarities))
         best_sim = float(similarities[best_idx])
+        logger.info("🔍 FACE MATCH tenant=%s best=%s similarity=%.4f threshold=%.2f", tenant_id, metadata[best_idx], best_sim, (1.0 - COSINE_THRESHOLD))
 
         if best_sim >= (1.0 - COSINE_THRESHOLD):
             emp_db_id, emp_id, name = metadata[best_idx]
@@ -212,8 +233,10 @@ class MultiTenantCameraEngine:
         self.cache = TenantEmbeddingCache()
         self.cpu_monitor = CPUMonitor()
         self.seen_known: Dict[Tuple[str, str], float] = {}  # (tenant_id, emp_id) -> timestamp
-        self.seen_unknown: set = set()
-        self.unknown_cooldowns: Dict[tuple, float] = {}
+        self.unknown_cooldowns: Dict[tuple, float] = {}     # emb_key -> last_captured_timestamp
+
+        # Resolve absolute backend dir at startup so Anonymous/ always lands in backend/
+        self._backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     def initialize_ai_model(self):
         """Initializes InsightFace ONNX Model."""
@@ -239,11 +262,16 @@ class MultiTenantCameraEngine:
         if self.app is None:
             self.initialize_ai_model()
 
+        # Motion check — skip InsightFace if no motion detected on frame
+        cam_key = f"{tenant_id}_{camera_id}"
+        if not has_motion(frame, cam_key):
+            return []
+
         now_time = time.time()
         mode, _ = self.cpu_monitor.update()
         max_faces = self.cpu_monitor.get_max_faces()
 
-        faces = self.app.get(frame)
+        faces = await asyncio.to_thread(self.app.get, frame)
         num_faces = len(faces)
 
         if num_faces > max_faces:
@@ -279,13 +307,15 @@ class MultiTenantCameraEngine:
                     ts_str = now.strftime("%Y-%m-%d %H:%M:%S")
                     await db.execute(
                         """
-                        INSERT INTO attendance_logs (tenant_id, emp_id, camera_id, timestamp, punch_type, confidence)
-                        VALUES ($1, $2, $3, $4, $5, $6)
+                        INSERT INTO attendance_logs (tenant_id, emp_id, name, date, time, camera_id, event_type, confidence)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                         """,
                         tenant_id,
                         emp_id,
+                        name,
+                        now.date(),
+                        now.time(),
                         camera_id,
-                        now,
                         camera_type,
                         sim,
                     )
@@ -309,19 +339,20 @@ class MultiTenantCameraEngine:
             else:
                 # Handle unknown face
                 if area >= UNKNOWN_MIN_AREA:
+                    # Use first 30 embedding values (rounded) as a lightweight face fingerprint
                     emb_key = tuple(np.round(emb[:30], 3))
-                    if emb_key not in self.seen_unknown:
-                        last_u = self.unknown_cooldowns.get(emb_key, 0.0)
-                        if now_time - last_u >= UNKNOWN_COOLDOWN:
-                            anon_dir = os.path.join("Anonymous", tenant_id, now.strftime("%Y-%m-%d"), camera_type)
-                            os.makedirs(anon_dir, exist_ok=True)
-                            photo_name = f"{now.strftime('%H-%M-%S')}.jpg"
-                            photo_path = os.path.join(anon_dir, photo_name)
-                            cv2.imwrite(photo_path, frame)
+                    last_u = self.unknown_cooldowns.get(emb_key, 0.0)
 
-                            self.unknown_cooldowns[emb_key] = now_time
-                            self.seen_unknown.add(emb_key)
-                            logger.info("📸 Unknown face captured for tenant %s under %s", tenant_id, photo_name)
+                    # Only save if cooldown has passed (no permanent block - uses time-based cooldown only)
+                    if now_time - last_u >= UNKNOWN_COOLDOWN:
+                        anon_dir = os.path.join(self._backend_dir, "Anonymous", tenant_id, now.strftime("%Y-%m-%d"), camera_type)
+                        os.makedirs(anon_dir, exist_ok=True)
+                        photo_name = f"{now.strftime('%H-%M-%S')}.jpg"
+                        photo_path = os.path.join(anon_dir, photo_name)
+                        cv2.imwrite(photo_path, frame)
+
+                        self.unknown_cooldowns[emb_key] = now_time
+                        logger.info("📸 [Anon] Unknown face captured for tenant %s cam=%s file=%s", tenant_id, camera_type, photo_name)
 
         return punches_logged
 

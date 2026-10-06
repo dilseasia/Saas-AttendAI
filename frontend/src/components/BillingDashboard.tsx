@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   CheckCircle2, Clock, AlertTriangle, Download, X, Zap, RefreshCw,
-  TrendingUp, Building2, ShieldCheck, CreditCard, Search, ArrowUpRight, ArrowDownRight, FileText
+  TrendingUp, Building2, ShieldCheck, CreditCard, Search, ArrowUpRight, ArrowDownRight, FileText, BarChart3
 } from 'lucide-react';
 import {
   AuthResponse, fetchPlans, fetchCompaniesBilling, createCheckoutSession, fetchDashboardStats,
@@ -17,14 +17,13 @@ const TABS: { id: Tab; label: string }[] = [
 
 const CSS = `
 .bp { flex:1; background:#f8fafc; overflow-y:auto; display:flex; flex-direction:column; min-width:0; font-family:'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
-.bp-top { padding:24px 32px 0; }
+.bp-top { padding:24px 32px 18px; border-bottom:1px solid #e2e8f0; background:#fff; display:flex; flex-direction:column; align-items:flex-start; }
 .bp-top h2 { font-size:1.4rem; font-weight:800; color:#0f172a; margin-bottom:2px; letter-spacing:-.3px; }
-.bp-top p { font-size:.82rem; color:#64748b; margin:0; }
-.bp-tabs { display:flex; border-bottom:1px solid #e2e8f0; padding:0 32px; margin-top:16px; overflow-x:auto; scrollbar-width:none; }
-.bp-tabs::-webkit-scrollbar { display:none; }
-.bp-tab { padding:12px 18px; font-size:.85rem; font-weight:600; color:#64748b; cursor:pointer; border-bottom:2.5px solid transparent; white-space:nowrap; transition:all .14s; background:none; border-top:none; border-left:none; border-right:none; font-family:inherit; }
-.bp-tab:hover { color:#2563eb; }
-.bp-tab.active { color:#2563eb; border-bottom-color:#2563eb; font-weight:800; }
+.bp-top p { font-size:.82rem; color:#64748b; margin:0 0 16px 0; }
+.bp-tab-pill-bar { display:inline-flex; align-items:center; gap:6px; background:#f1f5f9; padding:4px; border-radius:12px; border:1px solid #e2e8f0; }
+.bp-tab-btn { display:flex; align-items:center; gap:8px; padding:9px 20px; border-radius:9px; font-size:.85rem; font-weight:700; color:#64748b; border:none; background:transparent; cursor:pointer; transition:all .15s ease; font-family:inherit; }
+.bp-tab-btn:hover { color:#0f172a; background:rgba(255,255,255,.6); }
+.bp-tab-btn.active { background:#fff; color:#2563eb; font-weight:800; box-shadow:0 2px 10px rgba(37,99,235,.15); }
 .bp-body { padding:28px 32px; flex:1; }
 .bp-sub { font-size:1.08rem; font-weight:800; color:#0f172a; margin-bottom:2px; }
 .bp-desc { font-size:.82rem; color:#64748b; margin-bottom:22px; }
@@ -245,15 +244,36 @@ export const BillingPage: React.FC<{ authData: AuthResponse }> = ({ authData }) 
       <div className="bp-top">
         <h2>Billing &amp; Revenue Analytics</h2>
         <p>Keep track of subscription plans, analyze ARR/MRR metrics, and monitor received payments.</p>
-      </div>
 
-      {/* Tabs */}
-      <div className="bp-tabs">
-        {TABS.map(t => (
-          <button key={t.id} className={`bp-tab${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)}>
-            {t.label}
+        {/* Dynamic Tab Switcher */}
+        <div className="bp-tab-pill-bar">
+          <button
+            className={`bp-tab-btn ${tab === 'billing' ? 'active' : ''}`}
+            onClick={() => setTab('billing')}
+          >
+            <CreditCard size={17} />
+            Billing &amp; Subscription
           </button>
-        ))}
+
+          <button
+            className={`bp-tab-btn ${tab === 'reports' ? 'active' : ''}`}
+            onClick={() => setTab('reports')}
+          >
+            <BarChart3 size={17} />
+            Report &amp; Analytics
+            <span style={{
+              fontSize: '.62rem',
+              fontWeight: 800,
+              padding: '2px 8px',
+              borderRadius: '9999px',
+              background: tab === 'reports' ? '#6366f1' : '#cbd5e1',
+              color: tab === 'reports' ? '#fff' : '#475569',
+              marginLeft: '4px'
+            }}>
+              LIVE
+            </span>
+          </button>
+        </div>
       </div>
 
       <div className="bp-body">

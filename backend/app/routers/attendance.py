@@ -112,18 +112,55 @@ async def get_raw_logs(
     query_date = target_date or date.today()
     tid = tenant_id if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id else user.tenant_id
     
-    rows = await db.fetch(
-        """
-        SELECT 
-            al.id, al.timestamp, al.punch_type as camera_type, 
-            e.emp_id, e.name, e.photo_url
-        FROM attendance_logs al
-        JOIN employees e ON e.emp_id = al.emp_id AND e.tenant_id = al.tenant_id
-        WHERE al.tenant_id = $1 AND DATE(al.timestamp) = $2
-        ORDER BY al.timestamp DESC
-        """,
-        tid, query_date
-    )
+    if (user.role == "super_admin" or user.email == "admin@seasia.com") and not tenant_id:
+        rows = await db.fetch(
+            """
+            SELECT
+              al.id,
+              al.date,
+              al.time,
+              al.event_type as camera_type,
+              e.emp_id,
+              e.name,
+              NULL::text AS photo_url,
+              t.name as company_name,
+              al.tenant_id
+            FROM attendance_logs al
+            JOIN employees e
+              ON e.emp_id = al.emp_id
+              AND e.tenant_id = al.tenant_id
+            JOIN tenants t
+              ON t.id = al.tenant_id
+            WHERE al.date = $1
+            ORDER BY al.date DESC, al.time DESC
+            """,
+            query_date
+        )
+    else:
+        rows = await db.fetch(
+            """
+            SELECT
+              al.id,
+              al.date,
+              al.time,
+              al.event_type as camera_type,
+              e.emp_id,
+              e.name,
+              NULL::text AS photo_url,
+              t.name as company_name,
+              al.tenant_id
+            FROM attendance_logs al
+            JOIN employees e
+              ON e.emp_id = al.emp_id
+              AND e.tenant_id = al.tenant_id
+            JOIN tenants t
+              ON t.id = al.tenant_id
+            WHERE al.tenant_id = $1
+              AND al.date = $2
+            ORDER BY al.date DESC, al.time DESC
+            """,
+            tid, query_date
+        )
     
     return {
         "success": True,
@@ -140,36 +177,43 @@ async def get_raw_logs(
 async def get_anonymous_logs(
     user: AuthUser,
     target_date: Optional[date] = Query(None, alias="date", description="Target date (defaults to today)"),
+    tenant_id: Optional[str] = Query(None, description="Super Admin can override tenant"),
     db: asyncpg.Connection = Depends(get_db),
 ):
     import os
     query_date = target_date or date.today()
     date_str = query_date.strftime('%Y-%m-%d')
-    tenant_id = user.tenant_id
-    
-    # Path format: Anonymous/<tenant_id>/<date>/<camera_type>/photo.jpg
-    base_dir = os.path.join(os.getcwd(), "Anonymous", tenant_id, date_str)
-    
+
+    # Allow super admin to view any tenant's anonymous logs
+    tid = tenant_id if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id else user.tenant_id
+
+    # Path is always relative to the backend/ directory where worker.py runs
+    # worker.py saves: Anonymous/<tenant_id>/<date>/<camera_type>/photo.jpg
+    # The backend app file lives at app/routers/attendance.py, so go up 3 levels to backend/
+    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    base_dir = os.path.join(backend_dir, "Anonymous", tid, date_str)
+
     logs = []
     if os.path.exists(base_dir):
-        for cam_type in os.listdir(base_dir):
+        for cam_type in sorted(os.listdir(base_dir)):
             cam_dir = os.path.join(base_dir, cam_type)
             if os.path.isdir(cam_dir):
-                for file_name in os.listdir(cam_dir):
+                for file_name in sorted(os.listdir(cam_dir)):
                     if file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
-                        # Build public URL for the image
-                        url = f"/api/v1/attendance/anonymous-photo?tenant_id={tenant_id}&date={date_str}&cam_type={cam_type}&file={file_name}"
+                        # Build URL; pass tenant_id so super admin gets correct images
+                        url = f"/api/v1/attendance/anonymous-photo?tenant_id={tid}&date={date_str}&cam_type={cam_type}&file={file_name}"
                         logs.append({
                             "time": file_name.split('.')[0].replace('-', ':'),
                             "camera_type": cam_type,
                             "url": url,
                         })
-                        
-    # Sort logs by time descending
+
+    # Sort by time descending
     logs.sort(key=lambda x: x["time"], reverse=True)
-    return {"success": True, "date": date_str, "logs": logs}
+    return {"success": True, "date": date_str, "tenant_id": tid, "count": len(logs), "logs": logs}
 
 
+# ── GET /attendance/anonymous-photo ─────────────────────────────────────
 @router.get("/anonymous-photo")
 async def serve_anonymous_photo(
     user: AuthUser,
@@ -180,12 +224,49 @@ async def serve_anonymous_photo(
 ):
     import os
     tid = tenant_id if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id else user.tenant_id
-    file_path = os.path.join(os.getcwd(), "Anonymous", tid, date, cam_type, file)
-    
+
+    # Same backend/ dir calculation
+    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    file_path = os.path.join(backend_dir, "Anonymous", tid, date, cam_type, file)
+
     if not os.path.exists(file_path):
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Photo not found")
-        
+        raise HTTPException(status_code=404, detail=f"Photo not found: {file_path}")
+
     with open(file_path, "rb") as f:
         img_bytes = f.read()
+    return Response(content=img_bytes, media_type="image/jpeg")
+    # ── GET /attendance/recognized-photo ────────────────────────────────
+@router.get("/recognized-photo")
+async def get_recognized_photo(
+    user: AuthUser,
+    tenant_id: str,
+    date: str,
+    emp_id: str,
+    cam_type: str,
+    file: str,
+):
+    import os
+
+    backend_dir = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
+
+    file_path = os.path.join(
+        backend_dir,
+        "recognized_photos",
+        tenant_id,
+        date,
+        emp_id,
+        cam_type,
+        file,
+    )
+
+    if not os.path.exists(file_path):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Recognized photo not found")
+
+    with open(file_path, "rb") as f:
+        img_bytes = f.read()
+
     return Response(content=img_bytes, media_type="image/jpeg")

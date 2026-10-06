@@ -10,7 +10,7 @@ import asyncpg
 import stripe
 
 from app.core.config import get_settings
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models.billing import (
     PlanItem,
@@ -289,120 +289,8 @@ async def get_all_companies_billing(db: asyncpg.Connection) -> CompanyBillingLis
     except Exception as exc:
         logger.warning("Could not query tenants from DB: %s", exc)
 
-    demo_companies = [
-        CompanyBillingItem(
-            id="demo-tenant-101",
-            name="SE Asia Tech Solutions",
-            slug="se-asia-tech",
-            email="billing@seasiatech.com",
-            phone="+91 98765 43210",
-            plan="enterprise",
-            plan_name="Enterprise Plan",
-            status="active",
-            price_usd=199,
-            price_inr=14999,
-            interval="month",
-            max_employees=99999,
-            max_cameras=999,
-            total_employees=342,
-            total_cameras=18,
-            created_at=datetime.utcnow() - timedelta(days=120),
-            current_period_end=datetime.utcnow() + timedelta(days=18),
-            last_login=datetime.utcnow() - timedelta(hours=2),
-            invoice_number="INV-2026-0098",
-        ),
-        CompanyBillingItem(
-            id="demo-tenant-102",
-            name="Nexus AI Global",
-            slug="nexus-ai",
-            email="accounts@nexusai.io",
-            phone="+1 (415) 890-1234",
-            plan="pro",
-            plan_name="Pro Plan",
-            status="active",
-            price_usd=79,
-            price_inr=4999,
-            interval="month",
-            max_employees=100,
-            max_cameras=5,
-            total_employees=84,
-            total_cameras=4,
-            created_at=datetime.utcnow() - timedelta(days=60),
-            current_period_end=datetime.utcnow() + timedelta(days=12),
-            last_login=datetime.utcnow() - timedelta(minutes=15),
-            invoice_number="INV-2026-0104",
-        ),
-        CompanyBillingItem(
-            id="demo-tenant-103",
-            name="Apex Dynamics Corp",
-            slug="apex-dynamics",
-            email="finance@apexdynamics.com",
-            phone="+91 91234 56789",
-            plan="starter",
-            plan_name="Starter Plan",
-            status="active",
-            price_usd=29,
-            price_inr=1999,
-            interval="month",
-            max_employees=25,
-            max_cameras=2,
-            total_employees=19,
-            total_cameras=2,
-            created_at=datetime.utcnow() - timedelta(days=45),
-            current_period_end=datetime.utcnow() + timedelta(days=5),
-            last_login=datetime.utcnow() - timedelta(days=1),
-            invoice_number="INV-2026-0112",
-        ),
-        CompanyBillingItem(
-            id="demo-tenant-104",
-            name="CloudScale Systems",
-            slug="cloudscale",
-            email="contact@cloudscale.net",
-            phone="+44 20 7946 0912",
-            plan="starter",
-            plan_name="Starter Plan",
-            status="trialing",
-            price_usd=29,
-            price_inr=1999,
-            interval="month",
-            max_employees=25,
-            max_cameras=2,
-            total_employees=8,
-            total_cameras=1,
-            created_at=datetime.utcnow() - timedelta(days=6),
-            trial_ends_at=datetime.utcnow() + timedelta(days=8),
-            current_period_end=datetime.utcnow() + timedelta(days=8),
-            last_login=datetime.utcnow() - timedelta(hours=5),
-            invoice_number="INV-2026-TRIAL",
-        ),
-        CompanyBillingItem(
-            id="demo-tenant-105",
-            name="Vanguard Logistics",
-            slug="vanguard-logistics",
-            email="admin@vanguardlog.com",
-            phone="+91 99887 76655",
-            plan="pro",
-            plan_name="Pro Plan",
-            status="active",
-            price_usd=79,
-            price_inr=4999,
-            interval="month",
-            max_employees=100,
-            max_cameras=5,
-            total_employees=67,
-            total_cameras=3,
-            created_at=datetime.utcnow() - timedelta(days=90),
-            current_period_end=datetime.utcnow() + timedelta(days=22),
-            last_login=datetime.utcnow() - timedelta(hours=1),
-            invoice_number="INV-2026-0076",
-        ),
-    ]
 
-    existing_slugs = {item.slug for item in db_items}
     final_list = list(db_items)
-    for demo in demo_companies:
-        if demo.slug not in existing_slugs:
-            final_list.append(demo)
 
     total_companies = len(final_list)
     total_mrr_usd = sum(item.price_usd for item in final_list if item.status == "active")
@@ -601,7 +489,7 @@ async def create_superadmin_employee(
 
     if not tenant_row:
         raise HTTPException(
-            status_code=status.HTTP_444_NOT_FOUND if hasattr(status, 'HTTP_444_NOT_FOUND') else 404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Company with slug '{payload.company_slug}' not found",
         )
 
@@ -613,7 +501,7 @@ async def create_superadmin_employee(
         prefix = tenant_row["emp_id_prefix"] or "EMP"
         digits = tenant_row["emp_id_digits"] or 4
         next_val_row = await db.fetchrow(
-            "SELECT COUNT(*) + 1 AS next_val FROM employees WHERE tenant_id = $1",
+            "SELECT COUNT(*) + 1 AS next_val FROM employees WHERE tenant_id = $1::uuid",
             tenant_id,
         )
         next_num = next_val_row["next_val"] if next_val_row else 1
@@ -623,7 +511,7 @@ async def create_superadmin_employee(
     emp_row = await db.fetchrow(
         """
         INSERT INTO employees (tenant_id, emp_id, name, department, designation, email, phone, is_active)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
+        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, TRUE)
         RETURNING id, created_at
         """,
         tenant_id,

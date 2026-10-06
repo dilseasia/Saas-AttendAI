@@ -33,7 +33,11 @@ class DailyAttendanceRecord(BaseModel):
     department: Optional[str] = None
     attendance_date: date = Field(..., alias="date")
     first_in: Optional[str] = None
+    first_in_image_url: Optional[str] = None
     last_out: Optional[str] = None
+    last_out_image_url: Optional[str] = None
+    entry_count: int = 0
+    exit_count: int = 0
     total_hours: Optional[float] = 0.0
     status: str = Field("Absent", description="Status: 'Present', 'Late', 'Half-Day', 'Absent', 'On-Leave'")
 

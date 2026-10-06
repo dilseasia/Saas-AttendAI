@@ -130,9 +130,16 @@ async def delete_employee(
 async def create_camera(
     payload: CreateCameraRequest,
     user: AdminUser,
+    tenant_id: Optional[str] = Query(None, description="Super admin: target tenant override"),
     db: asyncpg.Connection = Depends(get_db),
 ) -> CameraResponse:
-    return await company_service.create_camera(db, user.tenant_id, payload)
+    # Super admin can create cameras for any tenant
+    effective_tenant = (
+        tenant_id
+        if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id
+        else user.tenant_id
+    )
+    return await company_service.create_camera(db, effective_tenant, payload)
 
 
 @router.get(
@@ -143,9 +150,16 @@ async def create_camera(
 )
 async def get_cameras(
     user: AuthUser,
+    tenant_id: Optional[str] = Query(None, description="Super admin: target tenant override"),
     db: asyncpg.Connection = Depends(get_db),
 ) -> CameraListResponse:
-    return await company_service.get_cameras(db, user.tenant_id)
+    # Super admin can query cameras for any tenant
+    effective_tenant = (
+        tenant_id
+        if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id
+        else user.tenant_id
+    )
+    return await company_service.get_cameras(db, effective_tenant)
 
 
 @router.patch(
@@ -158,9 +172,48 @@ async def update_camera(
     camera_id: int,
     payload: UpdateCameraRequest,
     user: AdminUser,
+    tenant_id: Optional[str] = Query(None),
     db: asyncpg.Connection = Depends(get_db),
 ) -> CameraResponse:
-    return await company_service.update_camera(db, user.tenant_id, camera_id, payload)
+    effective_tenant = (
+        tenant_id
+        if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id
+        else user.tenant_id
+    )
+    return await company_service.update_camera(db, effective_tenant, camera_id, payload)
+
+
+@router.post(
+    "/cameras/{camera_id}/toggle",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Toggle camera active/pause state",
+)
+async def toggle_camera(
+    camera_id: int,
+    user: AdminUser,
+    tenant_id: Optional[str] = Query(None),
+    db: asyncpg.Connection = Depends(get_db),
+) -> MessageResponse:
+    effective_tenant = (
+        tenant_id
+        if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id
+        else user.tenant_id
+    )
+    row = await db.fetchrow(
+        "SELECT id, is_active FROM cameras WHERE id = $1 AND tenant_id = $2",
+        camera_id, effective_tenant
+    )
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Camera not found")
+    new_state = not row["is_active"]
+    await db.execute(
+        "UPDATE cameras SET is_active = $1 WHERE id = $2 AND tenant_id = $3",
+        new_state, camera_id, effective_tenant
+    )
+    state_label = "resumed" if new_state else "paused"
+    return MessageResponse(success=True, message=f"Camera {state_label} successfully")
 
 
 @router.delete(
@@ -172,9 +225,15 @@ async def update_camera(
 async def delete_camera(
     camera_id: int,
     user: AdminUser,
+    tenant_id: Optional[str] = Query(None),
     db: asyncpg.Connection = Depends(get_db),
 ) -> MessageResponse:
-    await company_service.delete_camera(db, user.tenant_id, camera_id)
+    effective_tenant = (
+        tenant_id
+        if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id
+        else user.tenant_id
+    )
+    await company_service.delete_camera(db, effective_tenant, camera_id)
     return MessageResponse(success=True, message="Camera deleted successfully")
 
 

@@ -115,26 +115,38 @@ async def apply_attendance_request(
 
 
 @requests_router.get(
-    "/pending",
-    response_model=List[AttendanceRequestResponse],
-    summary="Get pending attendance regularization requests (HR / Admin only)",
+    "/all",
+    summary="Get all attendance requests with stats metrics",
 )
-async def get_pending_attendance_requests(
-    user: HRUser,
+async def get_all_attendance_requests(
+    tenant_id: Optional[str] = Query(None, description="Tenant ID or 'ALL'"),
+    status: Optional[str] = Query(None, description="Status filter e.g. Approved, Pending, Rejected"),
+    search: Optional[str] = Query(None, description="Search query"),
+    from_date: Optional[str] = Query(None, description="Start date"),
+    to_date: Optional[str] = Query(None, description="End date"),
     db: asyncpg.Connection = Depends(get_db),
-) -> List[AttendanceRequestResponse]:
-    return await leaves_service.get_pending_attendance_requests(db, user.tenant_id)
+):
+    from datetime import datetime as dt
+    f_d = dt.strptime(from_date, "%Y-%m-%d").date() if from_date else None
+    t_d = dt.strptime(to_date, "%Y-%m-%d").date() if to_date else None
+    return await leaves_service.get_all_requests_with_stats(
+        db, tenant_id=tenant_id, status_filter=status, search_query=search, from_date=f_d, to_date=t_d
+    )
 
 
 @requests_router.post(
-    "/{request_id}/review",
-    response_model=AttendanceRequestResponse,
-    summary="Approve or Reject attendance request (HR / Admin only)",
+    "/bulk-review",
+    summary="Bulk Approve or Reject selected attendance requests",
 )
-async def review_attendance_request(
-    request_id: int,
-    payload: LeaveReviewRequest,
-    user: HRUser,
+async def bulk_review_attendance_requests(
+    payload: leaves_service.BulkReviewRequest if hasattr(leaves_service, 'BulkReviewRequest') else dict,
     db: asyncpg.Connection = Depends(get_db),
-) -> AttendanceRequestResponse:
-    return await leaves_service.review_attendance_request(db, user.tenant_id, request_id, user.name or user.email, payload)
+):
+    # Perform bulk update
+    request_ids = payload.get("ids", []) if isinstance(payload, dict) else payload.ids
+    status_val = payload.get("status", "approved") if isinstance(payload, dict) else payload.status
+    remarks = payload.get("remarks") if isinstance(payload, dict) else payload.remarks
+    return await leaves_service.bulk_review_attendance_requests(
+        db, request_ids=request_ids, reviewer_name="Admin", status=status_val, remarks=remarks
+    )
+

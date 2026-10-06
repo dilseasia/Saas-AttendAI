@@ -1,9 +1,12 @@
 import os
 import sys
 import time
+import queue
+import threading
 import asyncio
 import logging
 from datetime import datetime
+from typing import Dict
 
 import cv2
 import asyncpg
@@ -22,91 +25,115 @@ logging.basicConfig(
 logger = logging.getLogger("worker")
 
 settings = get_settings()
-
 engine = MultiTenantCameraEngine()
 
-# Keep track of active camera tasks: camera_id -> asyncio.Task
-active_tasks = {}
-# Keep track of the cancellation flags: camera_id -> asyncio.Event
-cancel_events = {}
+# Shared frame queue: camera threads push frames -> processor consumes frames
+frame_queue = queue.Queue(maxsize=30)
+camera_threads: Dict[int, "CameraReaderThread"] = {}
 
-async def process_camera_stream(pool: asyncpg.Pool, camera_id: int, tenant_id: str, camera_type: str, stream_url: str, cancel_event: asyncio.Event):
+
+class CameraReaderThread(threading.Thread):
     """
-    Runs continuously for a specific camera.
-    Reads frames, applies throttling, and sends them to the unified engine.
+    Dedicated thread per active camera.
+    Reads RTSP frames continuously, throttles to ~2 FPS, and pushes to shared queue.
     """
-    logger.info(f"🎥 Starting stream processing for Camera #{camera_id} (Tenant: {tenant_id})")
-    
-    # Load tenant embeddings into cache (if not already loaded)
-    async with pool.acquire() as conn:
-        await engine.cache.reload_tenant(conn, tenant_id)
 
-    cap = await asyncio.to_thread(create_rtsp_connection, stream_url)
-    if cap is None:
-        logger.error(f"❌ Could not connect to Camera #{camera_id} stream. Task exiting.")
-        return
+    def __init__(self, camera_id: int, tenant_id: str, camera_type: str, stream_url: str):
+        super().__init__(daemon=True, name=f"CamThread-{camera_id}")
+        self.camera_id = camera_id
+        self.tenant_id = tenant_id
+        self.camera_type = camera_type
+        self.stream_url = stream_url
+        self.cap = None
+        self.running = True
 
-    frame_interval = 1.0  # Min seconds between frames to process
-    skip_frames = 3
-    
-    last_frame_time = time.time()
-    frame_counter = 0
+    def run(self):
+        logger.info("🎥 [CamThread #%d] Starting RTSP reader for tenant %s...", self.camera_id, self.tenant_id)
+        last_frame_time = 0.0
+        frame_interval = 0.5  # 2 FPS per camera
 
-    try:
-        while not cancel_event.is_set():
-            # Reading from RTSP is blocking, offload to thread
-            ret, frame = await asyncio.to_thread(cap.read)
-            now = datetime.now()
+        while self.running:
+            if self.cap is None or not self.cap.isOpened():
+                self.cap = create_rtsp_connection(self.stream_url)
+                if self.cap is None:
+                    logger.warning("⚠️ [CamThread #%d] Connection failed. Retrying in 5s...", self.camera_id)
+                    time.sleep(5)
+                    continue
+
+            ret, frame = self.cap.read()
             now_time = time.time()
 
             if not ret or frame is None:
-                logger.warning(f"⚠️ Camera #{camera_id} stream disconnected. Attempting reconnect in 5s...")
-                cap.release()
-                await asyncio.sleep(5)
-                if cancel_event.is_set():
-                    break
-                cap = await asyncio.to_thread(create_rtsp_connection, stream_url)
-                continue
-
-            frame_counter += 1
-            if frame_counter % (skip_frames + 1) != 0:
+                logger.warning("⚠️ [CamThread #%d] Frame read failed. Reconnecting...", self.camera_id)
+                if self.cap:
+                    self.cap.release()
+                self.cap = None
+                time.sleep(2)
                 continue
 
             if now_time - last_frame_time < frame_interval:
                 continue
-                
             last_frame_time = now_time
 
-            # The process_frame contains some synchronous CPU work (app.get).
-            # If the server lags, we may need to wrap parts of process_frame in to_thread, 
-            # but for now we await it as written in the engine.
+            item = {
+                "camera_id": self.camera_id,
+                "tenant_id": self.tenant_id,
+                "camera_type": self.camera_type,
+                "frame": frame,
+                "now": datetime.now(),
+            }
+
+            try:
+                frame_queue.put_nowait(item)
+            except queue.Full:
+                pass  # Drop frame if queue is full to avoid backlog lag
+
+        if self.cap:
+            self.cap.release()
+        logger.info("🔌 [CamThread #%d] Reader thread stopped.", self.camera_id)
+
+    def stop(self):
+        self.running = False
+
+
+async def process_queue(pool: asyncpg.Pool):
+    """
+    Pulls frames from shared queue and processes them through MultiTenantCameraEngine.
+    """
+    logger.info("⚙️ Async Frame Processor active...")
+    while True:
+        try:
+            try:
+                item = frame_queue.get_nowait()
+            except queue.Empty:
+                await asyncio.sleep(0.05)
+                continue
+
             async with pool.acquire() as conn:
                 try:
-                    await engine.process_frame(conn, tenant_id, camera_id, camera_type, frame, now)
-                except Exception as e:
-                    logger.error(f"❌ Error processing frame for Camera #{camera_id}: {e}")
-            
-            # Yield control to the event loop so other cameras can process
-            await asyncio.sleep(0.01)
-            
-    except asyncio.CancelledError:
-        logger.info(f"🛑 Camera #{camera_id} task was cancelled.")
-    except Exception as e:
-        logger.exception(f"💥 Camera #{camera_id} loop crashed: {e}")
-    finally:
-        cap.release()
-        logger.info(f"🔌 Camera #{camera_id} stream released.")
+                    await engine.process_frame(
+                        conn,
+                        item["tenant_id"],
+                        item["camera_id"],
+                        item["camera_type"],
+                        item["frame"],
+                        item["now"],
+                    )
+                except Exception as exc:
+                    logger.error("❌ Error processing frame for Cam #%d: %s", item["camera_id"], exc)
+
+        except Exception as e:
+            logger.error("💥 Queue processing loop error: %s", e)
+            await asyncio.sleep(0.1)
 
 
 async def sync_cameras(pool: asyncpg.Pool):
     """
-    Polls the database every 60 seconds to find new active cameras,
-    spawns tasks for them, and kills tasks for cameras that were deleted or deactivated.
+    Polls DB for active cameras, spawns new reader threads, and stops deactivated threads.
     """
     while True:
         try:
             async with pool.acquire() as conn:
-                # Fetch all ACTIVE cameras for ACTIVE tenants
                 rows = await conn.fetch(
                     """
                     SELECT c.id, c.tenant_id, c.type, c.stream_url
@@ -115,67 +142,58 @@ async def sync_cameras(pool: asyncpg.Pool):
                     WHERE c.is_active = TRUE AND t.status = 'active'
                     """
                 )
-                
-            active_db_cameras = {r["id"]: dict(r) for r in rows}
-            
-            # 1. Kill tasks for cameras that are no longer active in DB
-            for cam_id in list(active_tasks.keys()):
-                if cam_id not in active_db_cameras:
-                    logger.info(f"🛑 Camera #{cam_id} deactivated or deleted. Stopping task...")
-                    cancel_events[cam_id].set()
-                    active_tasks[cam_id].cancel()
-                    del active_tasks[cam_id]
-                    del cancel_events[cam_id]
+                # Also reload embeddings for active tenants
+                for r in rows:
+                    await engine.cache.reload_tenant(conn, str(r["tenant_id"]))
 
-            # 2. Spawn tasks for newly activated cameras
-            for cam_id, cam_data in active_db_cameras.items():
-                if cam_id not in active_tasks:
-                    logger.info(f"✨ Found new active Camera #{cam_id}. Spawning task...")
-                    cancel_event = asyncio.Event()
-                    cancel_events[cam_id] = cancel_event
-                    
-                    task = asyncio.create_task(
-                        process_camera_stream(
-                            pool,
-                            cam_id,
-                            str(cam_data["tenant_id"]),
-                            cam_data["type"],
-                            cam_data["stream_url"],
-                            cancel_event
-                        )
+            active_db_cams = {r["id"]: dict(r) for r in rows}
+
+            # 1. Stop threads for cameras no longer active
+            for cam_id in list(camera_threads.keys()):
+                if cam_id not in active_db_cams:
+                    logger.info("🛑 Camera #%d deactivated/deleted. Stopping thread...", cam_id)
+                    camera_threads[cam_id].stop()
+                    del camera_threads[cam_id]
+
+            # 2. Start threads for new active cameras
+            for cam_id, cam_data in active_db_cams.items():
+                if cam_id not in camera_threads:
+                    logger.info("✨ Found new active Camera #%d. Starting thread...", cam_id)
+                    thread = CameraReaderThread(
+                        camera_id=cam_id,
+                        tenant_id=str(cam_data["tenant_id"]),
+                        camera_type=cam_data["type"],
+                        stream_url=cam_data["stream_url"],
                     )
-                    active_tasks[cam_id] = task
+                    thread.start()
+                    camera_threads[cam_id] = thread
 
-            # 3. Reload embeddings for active tenants every hour? Or just rely on 60s check if needed.
-            # Currently embeddings are loaded once per camera spawn. 
-            
         except Exception as e:
-            logger.error(f"❌ Error syncing cameras: {e}")
-            
+            logger.error("❌ Error syncing cameras: %s", e)
+
         await asyncio.sleep(30)
 
 
 async def main():
     logger.info("🚀 Starting Multi-Tenant Camera Engine Worker...")
-    
-    # Initialize DB connection pool
-    pool = await asyncpg.create_pool(settings.DATABASE_URL, min_size=2, max_size=20)
-    
-    # Pre-initialize AI model so it doesn't block the first camera
-    logger.info("🧠 Loading InsightFace model...")
+
+    pool = await asyncpg.create_pool(settings.DATABASE_URL, min_size=5, max_size=25)
+
+    logger.info("🧠 Initializing InsightFace AI model...")
     await asyncio.to_thread(engine.initialize_ai_model)
-    logger.info("✅ InsightFace model loaded.")
+    logger.info("✅ InsightFace model ready.")
+
+    # Start queue processor task and camera sync task concurrently
+    processor_task = asyncio.create_task(process_queue(pool))
+    sync_task = asyncio.create_task(sync_cameras(pool))
 
     try:
-        # Run the syncing loop forever
-        await sync_cameras(pool)
+        await asyncio.gather(processor_task, sync_task)
     except KeyboardInterrupt:
         logger.info("🛑 Shutting down Camera Engine Worker...")
     finally:
-        for ev in cancel_events.values():
-            ev.set()
-        for task in active_tasks.values():
-            task.cancel()
+        for t in camera_threads.values():
+            t.stop()
         await pool.close()
 
 

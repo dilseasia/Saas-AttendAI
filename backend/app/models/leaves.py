@@ -66,9 +66,11 @@ class AttendanceRequestResponse(BaseModel):
     id: int
     tenant_id: str
     emp_id: str
+    company_name: Optional[str] = None
     name: str
     request_type: str
     request_date: date
+    to_date: Optional[date] = None
     punch_time: Optional[str] = None
     reason: str
     status: str
@@ -76,3 +78,10 @@ class AttendanceRequestResponse(BaseModel):
     reviewed_by: Optional[str] = None
     reviewed_at: Optional[datetime] = None
     remarks: Optional[str] = None
+
+
+class BulkReviewRequest(BaseModel):
+    ids: List[int] = Field(..., description="List of request IDs to review")
+    status: str = Field(..., description="'approved' or 'rejected'")
+    remarks: Optional[str] = Field(None, description="Optional reviewer remarks")
+

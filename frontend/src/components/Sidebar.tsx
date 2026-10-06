@@ -195,20 +195,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ authData, activePage, onNaviga
           transition: all .14s;
           justify-content: ${collapsed ? 'center' : 'flex-start'};
           white-space: nowrap;
-          color: #4c1d95;
+          color: #475569;
           font-size: .85rem;
           font-weight: 600;
           position: relative;
         }
         .sb-item:hover {
-          background: rgba(99,102,241,0.1);
-          color: #3730a3;
+          background: #f1f5f9;
+          color: #0f172a;
         }
         .sb-item.active {
-          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+          background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
           color: #ffffff;
-          font-weight: 700;
-          box-shadow: 0 4px 14px rgba(99,102,241,.35);
+          font-weight: 800;
+          box-shadow: 0 4px 14px rgba(37,99,235,.35);
         }
         .sb-item.active svg {
           color: #ffffff !important;

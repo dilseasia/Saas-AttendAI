@@ -42,19 +42,26 @@ def get_current_user(
 ) -> CurrentUser:
     """
     Reads and validates the Bearer token on every protected request.
+    Fallback to ?token= query parameter for HTML <img> and video stream requests.
     Raises 401 if token is missing, expired, or invalid.
     """
-    if credentials is None:
-        raise AuthenticationError("Missing Authorization header. Format: Bearer <token>")
+    raw_token = None
+    if credentials:
+        raw_token = credentials.credentials
+    else:
+        raw_token = request.query_params.get("token")
+
+    if not raw_token:
+        raise AuthenticationError("Missing Authorization header or token query parameter")
 
     try:
-        payload = decode_access_token(credentials.credentials)
+        payload = decode_access_token(raw_token)
     except JWTError as exc:
         raise AuthenticationError(f"Invalid or expired token: {exc}")
 
     user = CurrentUser(payload)
     if user.role == "super_admin" or user.email == "admin@seasia.com":
-        override_tenant = request.headers.get("x-tenant-id")
+        override_tenant = request.headers.get("x-tenant-id") or request.query_params.get("tenant_id")
         if override_tenant and override_tenant not in ("undefined", "null"):
             user.tenant_id = override_tenant
             

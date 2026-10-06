@@ -9,6 +9,8 @@ import io
 import uuid
 import pickle
 import logging
+import asyncio
+import cv2
 import numpy as np
 import asyncpg
 from typing import Tuple, Optional, Union
@@ -25,33 +27,29 @@ logger = logging.getLogger(__name__)
 
 
 # ── HELPER: EXTRACT EMBEDDING FROM IMAGE ──────────────────────────────
-def _extract_face_embedding(image_bytes: bytes) -> np.ndarray:
+def _extract_face_embedding(image_bytes: bytes) -> Optional[np.ndarray]:
     """
-    Extracts face embedding vector from raw image bytes.
-    Uses PIL Image decoding and 512-D feature vector projection.
+    Extracts 512-D InsightFace embedding vector from raw image bytes.
+    Uses InsightFace buffalo_l ONNX model for high precision recognition.
     """
     try:
-        from PIL import Image
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        img_resized = img.resize((13, 13))
-        raw_vec = np.array(img_resized, dtype=np.float32).flatten()
-        
-        # Project down to 512 dimension vector
-        if len(raw_vec) >= 512:
-            vec = raw_vec[:512]
-        else:
-            vec = np.pad(raw_vec, (0, 512 - len(raw_vec)))
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None or img.size == 0:
+            return None
 
-        norm = np.linalg.norm(vec)
-        if norm > 0:
-            vec = vec / norm
-        return vec
+        from app.services.camera_engine import camera_engine
+        camera_engine.initialize_ai_model()
+        if camera_engine.app is not None:
+            faces = camera_engine.app.get(img)
+            if faces and len(faces) > 0:
+                # Return the largest face's 512-d float32 embedding
+                faces = sorted(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse=True)
+                return faces[0].embedding.astype(np.float32)
+    except Exception as exc:
+        logger.warning("⚠️ InsightFace extraction failed: %s", exc)
 
-    except Exception as e:
-        logger.warning("⚠️ PIL decoding failed (%s), using raw byte vectorizer", e)
-        arr = np.frombuffer(image_bytes[:512].ljust(512, b'\0'), dtype=np.uint8).astype(np.float32)
-        norm = np.linalg.norm(arr)
-        return arr / norm if norm > 0 else arr
+    return None
 
 
 def _parse_uuid(tenant_id: Union[str, uuid.UUID]) -> uuid.UUID:
@@ -85,11 +83,20 @@ async def enroll_face(
 
     file_size = len(image_bytes)
 
-    # 2. Extract vector embedding
-    embedding_vec = _extract_face_embedding(image_bytes)
-    embedding_bytes = pickle.dumps(embedding_vec)
+    # 2. Extract InsightFace vector embedding (offloaded to thread)
+    embedding_vec = await asyncio.to_thread(_extract_face_embedding, image_bytes)
+    if embedding_vec is not None:
+        embedding_bytes = embedding_vec.tobytes()
+    else:
+        embedding_bytes = np.zeros(512, dtype=np.float32).tobytes()
 
     # 3. Store raw image in database `face_images` table (BYTEA)
+    # Replace existing image for this employee if present
+    await db.execute(
+        "DELETE FROM face_images WHERE tenant_id = $1 AND emp_id = $2",
+        tenant_uuid,
+        emp_id,
+    )
     face_image_id = await db.fetchval(
         """
         INSERT INTO face_images (tenant_id, emp_id, image_data, image_name, file_size)
@@ -104,10 +111,15 @@ async def enroll_face(
     )
 
     # 4. Store binary embedding in `face_embeddings` table (BYTEA)
+    await db.execute(
+        "DELETE FROM face_embeddings WHERE tenant_id = $1 AND emp_id = $2",
+        tenant_uuid,
+        emp_id,
+    )
     embedding_id = await db.fetchval(
         """
-        INSERT INTO face_embeddings (tenant_id, emp_id, face_image_id, embedding)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO face_embeddings (tenant_id, emp_id, face_image_id, embedding, model_version)
+        VALUES ($1, $2, $3, $4, 'buffalo_l')
         RETURNING id
         """,
         tenant_uuid,
@@ -122,6 +134,13 @@ async def enroll_face(
         tenant_uuid,
         emp_id,
     )
+
+    # 6. Reload tenant vectors in camera engine cache
+    try:
+        from app.services.camera_engine import camera_engine
+        await camera_engine.cache.reload_tenant(db, str(tenant_uuid))
+    except Exception as exc:
+        logger.warning("Could not reload camera engine cache: %s", exc)
 
     logger.info(
         "🖼️ Enrolled face for emp_id='%s' (Image ID=%d, Embedding ID=%d, Size=%d bytes)",
@@ -206,8 +225,8 @@ async def match_face(
             message="No enrolled employee face templates found for this company",
         )
 
-    # 2. Extract query embedding vector
-    query_vec = _extract_face_embedding(query_image_bytes)
+    # 2. Extract query embedding vector (offloaded to thread)
+    query_vec = await asyncio.to_thread(_extract_face_embedding, query_image_bytes)
 
     # 3. Vectorized Similarity Matching
     best_similarity = -1.0
@@ -216,7 +235,13 @@ async def match_face(
     for row in rows:
         try:
             raw_emb = bytes(row["embedding"])
-            stored_vec = pickle.loads(raw_emb)
+            if len(raw_emb) == 2048:
+                stored_vec = np.frombuffer(raw_emb, dtype=np.float32)
+            else:
+                try:
+                    stored_vec = pickle.loads(raw_emb)
+                except Exception:
+                    stored_vec = np.frombuffer(raw_emb, dtype=np.float32)
             
             denom = (np.linalg.norm(query_vec) * np.linalg.norm(stored_vec))
             sim = float(np.dot(query_vec, stored_vec) / denom) if denom > 0 else 0.0
