@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.core.config import get_settings
 from app.services.camera_engine import MultiTenantCameraEngine, create_rtsp_connection
+from app.services.frame_store import set_frame, remove_frame
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,6 +31,7 @@ engine = MultiTenantCameraEngine()
 # Shared frame queue: camera threads push frames -> processor consumes frames
 frame_queue = queue.Queue(maxsize=30)
 camera_threads: Dict[int, "CameraReaderThread"] = {}
+
 
 
 class CameraReaderThread(threading.Thread):
@@ -63,6 +65,13 @@ class CameraReaderThread(threading.Thread):
             ret, frame = self.cap.read()
             now_time = time.time()
 
+            # TEMP diagnostic: capture one original-resolution frame from camera 49.
+            if ret and frame is not None and self.camera_id == 49:
+                capture_path = "/tmp/camera49_original.jpg"
+                if not os.path.exists(capture_path):
+                    if cv2.imwrite(capture_path, frame):
+                        logger.info("Diagnostic original frame saved: %s shape=%s", capture_path, frame.shape)
+
             if not ret or frame is None:
                 logger.warning("⚠️ [CamThread #%d] Frame read failed. Reconnecting...", self.camera_id)
                 if self.cap:
@@ -74,6 +83,24 @@ class CameraReaderThread(threading.Thread):
             if now_time - last_frame_time < frame_interval:
                 continue
             last_frame_time = now_time
+
+            # Keep a small JPEG preview of the latest frame.
+            # This uses the SAME RTSP frame already captured by this worker.
+            try:
+                preview = cv2.resize(frame, (854, 480))
+                ok, buffer = cv2.imencode(
+                    ".jpg",
+                    preview,
+                    [int(cv2.IMWRITE_JPEG_QUALITY), 70],
+                )
+                if ok:
+                    set_frame(self.camera_id, buffer.tobytes())
+            except Exception as exc:
+                logger.debug(
+                    "Preview frame encode failed for camera #%d: %s",
+                    self.camera_id,
+                    exc,
+                )
 
             item = {
                 "camera_id": self.camera_id,
@@ -90,6 +117,7 @@ class CameraReaderThread(threading.Thread):
 
         if self.cap:
             self.cap.release()
+        remove_frame(self.camera_id)
         logger.info("🔌 [CamThread #%d] Reader thread stopped.", self.camera_id)
 
     def stop(self):

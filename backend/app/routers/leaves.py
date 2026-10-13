@@ -20,6 +20,8 @@ from app.models.leaves import (
     LeaveBalanceResponse,
     ApplyAttendanceRequest,
     AttendanceRequestResponse,
+    BulkReviewRequest,
+    ReviewSingleRequest,
 )
 from app.services import leaves_service
 
@@ -98,12 +100,12 @@ async def get_leave_balances(
     return await leaves_service.get_leave_balances(db, user.tenant_id, target_emp_id, year=year)
 
 
-# ── ATTENDANCE REGULARIZATION REQUESTS ENDPOINTS ──────────────────────
+# ── ATTENDANCE REGULARIZATION / WFH / LEAVE UNIFIED ENDPOINTS ─────────
 @requests_router.post(
     "/apply",
     response_model=AttendanceRequestResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Submit attendance regularization / WFH request",
+    summary="Submit attendance regularization, WFH, or leave request",
 )
 async def apply_attendance_request(
     user: AuthUser,
@@ -121,6 +123,7 @@ async def apply_attendance_request(
 async def get_all_attendance_requests(
     tenant_id: Optional[str] = Query(None, description="Tenant ID or 'ALL'"),
     status: Optional[str] = Query(None, description="Status filter e.g. Approved, Pending, Rejected"),
+    type: Optional[str] = Query(None, description="Type filter e.g. manual_entry, wfh, leave"),
     search: Optional[str] = Query(None, description="Search query"),
     from_date: Optional[str] = Query(None, description="Start date"),
     to_date: Optional[str] = Query(None, description="End date"),
@@ -130,23 +133,50 @@ async def get_all_attendance_requests(
     f_d = dt.strptime(from_date, "%Y-%m-%d").date() if from_date else None
     t_d = dt.strptime(to_date, "%Y-%m-%d").date() if to_date else None
     return await leaves_service.get_all_requests_with_stats(
-        db, tenant_id=tenant_id, status_filter=status, search_query=search, from_date=f_d, to_date=t_d
+        db,
+        tenant_id=tenant_id,
+        status_filter=status,
+        type_filter=type,
+        search_query=search,
+        from_date=f_d,
+        to_date=t_d,
+    )
+
+
+@requests_router.post(
+    "/review",
+    summary="Approve or Reject a single request (Attendance or Leave)",
+)
+async def review_single_request(
+    payload: ReviewSingleRequest,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    return await leaves_service.review_single_request(
+        db,
+        request_id=payload.id,
+        reviewer_name="Admin",
+        status=payload.status,
+        source_type=payload.source_type,
+        remarks=payload.remarks,
     )
 
 
 @requests_router.post(
     "/bulk-review",
-    summary="Bulk Approve or Reject selected attendance requests",
+    summary="Bulk Approve or Reject selected requests (Attendance or Leave)",
 )
 async def bulk_review_attendance_requests(
-    payload: leaves_service.BulkReviewRequest if hasattr(leaves_service, 'BulkReviewRequest') else dict,
+    payload: BulkReviewRequest,
     db: asyncpg.Connection = Depends(get_db),
 ):
-    # Perform bulk update
-    request_ids = payload.get("ids", []) if isinstance(payload, dict) else payload.ids
-    status_val = payload.get("status", "approved") if isinstance(payload, dict) else payload.status
-    remarks = payload.get("remarks") if isinstance(payload, dict) else payload.remarks
     return await leaves_service.bulk_review_attendance_requests(
-        db, request_ids=request_ids, reviewer_name="Admin", status=status_val, remarks=remarks
+        db,
+        request_ids=payload.ids or [],
+        reviewer_name="Admin",
+        status=payload.status,
+        remarks=payload.remarks,
+        source_type=payload.source_type,
+        items=payload.items,
     )
+
 

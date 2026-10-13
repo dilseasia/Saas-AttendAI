@@ -200,6 +200,65 @@ async def create_checkout_session(
     )
 
 
+async def update_tenant_plan_direct(
+    db: asyncpg.Connection, tenant_id: str, plan_id: str
+) -> dict:
+    """Directly updates a company's subscription plan, employee limits, and camera limits."""
+    plan = PLANS_CATALOG.get(plan_id.lower())
+    if not plan:
+        raise ValidationError(f"Invalid plan ID: {plan_id}")
+
+    tenant = await db.fetchrow("SELECT id, name, slug FROM tenants WHERE id = $1", tenant_id)
+    if not tenant:
+        raise NotFoundError(f"Tenant company with ID '{tenant_id}' not found.")
+
+    await db.execute(
+        """
+        UPDATE tenants
+        SET plan = $1, max_employees = $2, max_cameras = $3, updated_at = NOW()
+        WHERE id = $4
+        """,
+        plan.id,
+        plan.max_employees,
+        plan.max_cameras,
+        tenant_id,
+    )
+
+    sub_exists = await db.fetchval("SELECT id FROM subscriptions WHERE tenant_id = $1", tenant_id)
+    if sub_exists:
+        await db.execute(
+            """
+            UPDATE subscriptions
+            SET plan = $1, status = 'active', current_period_end = NOW() + INTERVAL '30 days', updated_at = NOW()
+            WHERE tenant_id = $2
+            """,
+            plan.id,
+            tenant_id,
+        )
+    else:
+        await db.execute(
+            """
+            INSERT INTO subscriptions (tenant_id, plan, status, current_period_end, created_at, updated_at)
+            VALUES ($1, $2, 'active', NOW() + INTERVAL '30 days', NOW(), NOW())
+            """,
+            tenant_id,
+            plan.id,
+        )
+
+    logger.info("⚡ [DIRECT SUPER ADMIN UPDATE] Upgraded company '%s' (%s) to '%s'", tenant['name'], tenant_id, plan.name)
+
+    return {
+        "success": True,
+        "message": f"Successfully updated {tenant['name']} to {plan.name}!",
+        "tenant_id": tenant_id,
+        "company_name": tenant["name"],
+        "plan": plan.id,
+        "plan_name": plan.name,
+        "max_employees": plan.max_employees,
+        "max_cameras": plan.max_cameras,
+    }
+
+
 async def get_subscription_status(
     db: asyncpg.Connection, tenant_id: str
 ) -> SubscriptionStatusResponse:

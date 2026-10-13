@@ -232,6 +232,7 @@ async def get_daily_attendance(
         entry_logs = []
         exit_logs = []
         first_in_log = None
+        last_out_log = None
 
         # ------------------------------------------------------------
         # ON LEAVE
@@ -244,6 +245,14 @@ async def get_daily_attendance(
         # ATTENDANCE LOGS EXIST
         # ------------------------------------------------------------
         elif logs_list:
+
+            # Always process attendance records chronologically.
+            # This guarantees the first entry and latest exit are selected
+            # correctly regardless of database row ordering.
+            logs_list = sorted(
+                logs_list,
+                key=lambda l: l["time"]
+            )
 
             entry_logs = [
                 l
@@ -282,19 +291,22 @@ async def get_daily_attendance(
             last_out_log = None
 
             if exit_logs:
-               last_out_log = exit_logs[-1]
+                # Latest explicit exit event of the day
+                last_out_log = exit_logs[-1]
 
-               last_out_dt = datetime.combine(
+                last_out_dt = datetime.combine(
                     target_date,
-                    exit_logs[-1]["time"],
+                    last_out_log["time"],
                 )
 
             elif len(logs_list) > 1:
-               last_out_log = logs_list[-1]
+                # Fallback: if there is no explicit exit event,
+                # use the latest attendance event.
+                last_out_log = logs_list[-1]
 
-               last_out_dt = datetime.combine(
+                last_out_dt = datetime.combine(
                     target_date,
-                    logs_list[-1]["time"],
+                    last_out_log["time"],
                 )
             # --------------------------------------------------------
             # FORMAT TIMES
@@ -381,6 +393,9 @@ async def get_daily_attendance(
                 )                    
                 if  last_out_log
                 else None,
+
+                # Enrolled face photo from face vector store (DB BYTEA)
+                face_photo_url=f"/api/v1/face/photo/{eid}?tenant_id={tenant_uuid}",
 
                 last_out=last_out,
                 total_hours=total_hours,

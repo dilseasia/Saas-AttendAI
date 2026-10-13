@@ -1,0 +1,9 @@
+ id |     company     |          name           | type  | is_active |                                stream_url                                
+----+-----------------+-------------------------+-------+-----------+--------------------------------------------------------------------------
+ 49 | Seasia Infotech | Seasia Entry Camera     | entry | t         | rtsp://admin:admin123@10.8.21.48:554/cam/realmonitor?channel=1&subtype=0
+ 50 | Moogle Labs     | Moogle Entry Camera     | entry | t         | rtsp://admin:admin123@10.8.21.48:554/cam/realmonitor?channel=1&subtype=0
+ 51 | Moogle Labs     | Moogle Exit Camera      | exit  | t         | rtsp://moogle:Admin_123@10.8.21.47:554/video/live?channel=1&subtype=0
+ 52 | OpenSource      | OpenSource Entry Camera | entry | t         | rtsp://admin:admin123@10.8.21.48:554/cam/realmonitor?channel=1&subtype=0
+ 53 | OpenSource      | OpenSource Exit Camera  | exit  | t         | rtsp://moogle:Admin_123@10.8.21.47:554/video/live?channel=1&subtype=0
+(5 rows)
+

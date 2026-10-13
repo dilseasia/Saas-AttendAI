@@ -2014,3 +2014,1155 @@ body {
 }
 
 
+
+/* AttendAI light-blue dashboard theme */
+:root {
+  --page-bg: #dcecff;
+  --page-bg-light: #edf5ff;
+  --card-bg: #ffffff;
+  --card-border: #e2ebf8;
+  --primary-blue: #4169ff;
+  --primary-purple: #7958ed;
+  --text-primary: #142448;
+  --text-secondary: #71809e;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background: linear-gradient(135deg, #dceaff, #c9e2ff 50%, #e7f1ff);
+  color: var(--text-primary);
+}
+
+.card,
+.dashboard-card,
+.stat-card,
+.metric-card,
+.chart-card,
+.chart-container,
+.panel,
+.widget,
+.analytics-card,
+.summary-card {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 24px;
+  box-shadow: 0 8px 24px rgba(57, 91, 145, 0.09);
+}
+
+.sidebar,
+.dashboard-sidebar {
+  background-color: #ffffff;
+  border-color: var(--card-border);
+}
+
+/* AttendAI Super Admin dashboard theme */
+body:has(.sa-dashboard) {
+  background: #dceaff !important;
+}
+
+.sa-dashboard {
+  background: linear-gradient(135deg, #dceaff, #c9e2ff 55%, #e7f1ff) !important;
+  min-height: 100vh;
+}
+
+.sa-dashboard .sa-kpi,
+.sa-dashboard .sa-card {
+  background: #fffefa !important;
+  border: 1px solid #e1eafa !important;
+  border-radius: 24px !important;
+  box-shadow: 0 8px 24px rgba(57, 91, 145, 0.10) !important;
+}
+
+.sa-dashboard .sa-kpi {
+  border-radius: 22px !important;
+}
+
+/* Equal-width cards in the first dashboard chart row */
+.sa-dashboard .sa-main-grid {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  gap: 12px !important;
+  align-items: stretch;
+}
+
+.sa-dashboard .sa-main-grid > .sa-card {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .sa-dashboard .sa-main-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* AttendAI — reference-inspired blue dashboard */
+.sa-dashboard {
+  background: #F4F6F9 !important;
+  min-height: 100vh;
+}
+
+.sa-dashboard .sa-kpi,
+.sa-dashboard .sa-card {
+  background: #FFFFFF !important;
+  border: 1px solid #E1E5EB !important;
+  border-radius: 16px !important;
+  box-shadow: 0 3px 12px rgba(31, 54, 80, 0.05) !important;
+}
+
+.sa-dashboard .sa-kpi:hover,
+.sa-dashboard .sa-card:hover {
+  box-shadow: 0 6px 18px rgba(31, 54, 80, 0.09) !important;
+}
+
+.sa-dashboard .sa-page-icon {
+  background: #E8F1FC !important;
+  color: #2563EB !important;
+}
+
+
+/* Compact, rounded AttendAI dashboard cards */
+.sa-dashboard .sa-kpi,
+.sa-dashboard .sa-card {
+  border-radius: 20px !important;
+  padding: 14px !important;
+  box-sizing: border-box;
+}
+
+.sa-dashboard .sa-kpi {
+  min-height: 88px;
+}
+
+.sa-dashboard .sa-chart-card {
+  padding: 14px !important;
+}
+
+.sa-dashboard .sa-chart {
+  max-width: 100%;
+}
+
+.sa-dashboard .sa-main-grid,
+.sa-dashboard .sa-bottom-grid {
+  gap: 12px !important;
+}
+
+.sa-dashboard .sa-kpi,
+.sa-dashboard .sa-card {
+  box-shadow: 0 3px 12px rgba(31, 54, 80, 0.05) !important;
+}
+
+
+/* Compact, rounded AttendAI dashboard cards */
+.sa-dashboard .sa-kpi,
+.sa-dashboard .sa-card {
+  border-radius: 20px !important;
+  padding: 14px !important;
+  box-sizing: border-box;
+}
+
+.sa-dashboard .sa-kpi {
+  min-height: 88px;
+}
+
+.sa-dashboard .sa-chart-card {
+  padding: 14px !important;
+}
+
+.sa-dashboard .sa-chart {
+  max-width: 100%;
+}
+
+.sa-dashboard .sa-main-grid,
+.sa-dashboard .sa-bottom-grid {
+  gap: 12px !important;
+}
+
+.sa-dashboard .sa-kpi,
+.sa-dashboard .sa-card {
+  box-shadow: 0 3px 12px rgba(31, 54, 80, 0.05) !important;
+}
+
+
+/* Bolder borders for all AttendAI dashboard cards */
+.sa-dashboard .sa-kpi,
+.sa-dashboard .sa-card {
+  border: 2px solid #CBD5E1 !important;
+}
+
+.sa-dashboard .sa-kpi:hover,
+.sa-dashboard .sa-card:hover {
+  border-color: #94A3B8 !important;
+}
+
+
+/* Strong, dark borders for all dashboard cards */
+.sa-dashboard .sa-kpi,
+.sa-dashboard .sa-card {
+  border: 3px solid #64748B !important;
+}
+
+.sa-dashboard .sa-kpi:hover,
+.sa-dashboard .sa-card:hover {
+  border-color: #334155 !important;
+}
+
+
+/* Softer, lighter dashboard card borders */
+.sa-dashboard .sa-kpi,
+.sa-dashboard .sa-card {
+  border: 2px solid #CBD5E1 !important;
+}
+
+.sa-dashboard .sa-kpi:hover,
+.sa-dashboard .sa-card:hover {
+  border-color: #B6C4D5 !important;
+}
+
+
+/* AttendAI — compact analytics dashboard inspired by reference */
+.sa-dashboard {
+  background: #F5F7FB !important;
+  min-height: 100vh;
+  color: #172033;
+  font-size: 13px;
+}
+
+.sa-dashboard .sa-kpi,
+.sa-dashboard .sa-card {
+  background: #FFFFFF !important;
+  border: 1px solid #E8EDF4 !important;
+  border-radius: 20px !important;
+  box-shadow: 0 3px 12px rgba(31, 54, 80, 0.045) !important;
+  padding: 14px !important;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.sa-dashboard .sa-kpi:hover,
+.sa-dashboard .sa-card:hover {
+  border-color: #D7E4F5 !important;
+  box-shadow: 0 5px 16px rgba(37, 99, 235, 0.07) !important;
+}
+
+/* Smaller KPI cards */
+.sa-dashboard .sa-kpi {
+  min-height: 112px;
+  border-radius: 18px !important;
+}
+
+/* Tighter chart layout */
+.sa-dashboard .sa-main-grid,
+.sa-dashboard .sa-bottom-grid {
+  gap: 14px !important;
+  align-items: stretch;
+}
+
+.sa-dashboard .sa-main-grid {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) !important;
+}
+
+.sa-dashboard .sa-main-grid > .sa-card,
+.sa-dashboard .sa-bottom-grid > .sa-card {
+  min-width: 0;
+  width: 100%;
+}
+
+.sa-dashboard .sa-chart-card {
+  padding: 14px !important;
+  min-width: 0;
+}
+
+.sa-dashboard .sa-chart {
+  max-width: 100%;
+}
+
+/* Consistent blue icon treatments */
+.sa-dashboard .sa-page-icon,
+.sa-dashboard .sa-kpi-icon,
+.sa-dashboard .sa-icon,
+.sa-dashboard .sa-nav-icon {
+  background: #EAF3FF !important;
+  color: #2684F7 !important;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Improve existing navigation and metric icon sizing */
+.sa-dashboard .sa-page-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.sa-dashboard .sa-kpi-icon,
+.sa-dashboard .sa-icon,
+.sa-dashboard .sa-nav-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.sa-dashboard .sa-page-icon svg,
+.sa-dashboard .sa-kpi-icon svg,
+.sa-dashboard .sa-icon svg,
+.sa-dashboard .sa-nav-icon svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.8;
+}
+
+/* Refined text hierarchy */
+.sa-dashboard h1 {
+  font-size: 25px;
+  line-height: 1.25;
+  font-weight: 650;
+}
+
+.sa-dashboard h2 {
+  font-size: 16px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.sa-dashboard h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Responsive layout */
+@media (max-width: 1000px) {
+  .sa-dashboard .sa-main-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .sa-dashboard .sa-kpi,
+  .sa-dashboard .sa-card {
+    padding: 12px !important;
+    border-radius: 16px !important;
+  }
+
+  .sa-dashboard .sa-kpi {
+    min-height: 96px;
+  }
+
+  .sa-dashboard .sa-main-grid,
+  .sa-dashboard .sa-bottom-grid {
+    gap: 10px !important;
+  }
+
+  .sa-dashboard h1 {
+    font-size: 21px;
+  }
+}
+
+/* AttendAI compact reference-inspired dashboard */
+.sa-dashboard {
+  padding: 16px 18px 22px !important;
+  background: #F5F7FB !important;
+}
+
+.sa-dashboard .sa-page-header {
+  align-items: center !important;
+  margin-bottom: 14px !important;
+  gap: 12px !important;
+}
+
+.sa-dashboard .sa-page-title {
+  gap: 9px !important;
+}
+
+.sa-dashboard .sa-page-icon {
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 10px !important;
+  background: #E8F1FF !important;
+  color: #3182F6 !important;
+}
+
+.sa-dashboard .sa-page-title h1 {
+  font-size: 20px !important;
+  font-weight: 750 !important;
+  letter-spacing: -0.4px !important;
+}
+
+.sa-dashboard .sa-page-title p {
+  font-size: 10px !important;
+  margin-top: 3px !important;
+}
+
+.sa-dashboard .sa-header-actions {
+  gap: 6px !important;
+}
+
+.sa-dashboard .sa-refresh,
+.sa-dashboard .sa-online {
+  height: 32px !important;
+  border-radius: 9px !important;
+  font-size: 10px !important;
+}
+
+.sa-dashboard .sa-kpis {
+  gap: 12px !important;
+  margin-bottom: 12px !important;
+}
+
+.sa-dashboard .sa-kpi {
+  min-height: 104px !important;
+  padding: 12px 14px !important;
+  border: 1px solid #E0E6EF !important;
+  border-radius: 18px !important;
+  box-shadow: 0 2px 8px rgba(31, 54, 80, 0.035) !important;
+}
+
+.sa-dashboard .sa-kpi:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 5px 14px rgba(31, 54, 80, 0.08) !important;
+  border-color: #C9D7EA !important;
+}
+
+.sa-dashboard .sa-kpi-icon {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 10px !important;
+}
+
+.sa-dashboard .sa-kpi-icon svg {
+  width: 17px !important;
+  height: 17px !important;
+  stroke-width: 1.8 !important;
+}
+
+.sa-dashboard .sa-kpi-label {
+  margin-top: 9px !important;
+  font-size: 10px !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+.sa-dashboard .sa-kpi-value {
+  font-size: 22px !important;
+  font-weight: 750 !important;
+  margin-top: 4px !important;
+}
+
+.sa-dashboard .sa-kpi-note {
+  margin-top: 5px !important;
+  font-size: 9px !important;
+}
+
+.sa-dashboard .sa-main-grid,
+.sa-dashboard .sa-bottom-grid {
+  gap: 12px !important;
+  margin-bottom: 12px !important;
+  align-items: stretch !important;
+}
+
+.sa-dashboard .sa-card {
+  border: 1px solid #E0E6EF !important;
+  border-radius: 18px !important;
+  box-shadow: 0 2px 8px rgba(31, 54, 80, 0.035) !important;
+}
+
+.sa-dashboard .sa-chart-card {
+  padding: 13px 15px !important;
+  min-width: 0 !important;
+}
+
+.sa-dashboard .sa-section-head {
+  gap: 8px !important;
+}
+
+.sa-dashboard .sa-card svg {
+  max-width: 100%;
+}
+
+@media (max-width: 1050px) {
+  .sa-dashboard .sa-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .sa-dashboard .sa-main-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .sa-dashboard {
+    padding: 12px !important;
+  }
+
+  .sa-dashboard .sa-kpis {
+    gap: 9px !important;
+  }
+
+  .sa-dashboard .sa-kpi {
+    padding: 11px !important;
+  }
+
+  .sa-dashboard .sa-page-title h1 {
+    font-size: 18px !important;
+  }
+
+  .sa-dashboard .sa-page-header {
+    flex-wrap: wrap !important;
+  }
+}
+
+
+/* AttendAI sidebar — clean compact reference style */
+.sb {
+  background: #FFFFFF !important;
+  border-right: 1px solid #E3E8F0 !important;
+  box-shadow: 2px 0 12px rgba(25, 45, 75, 0.025) !important;
+}
+
+.sb-head {
+  min-height: 62px !important;
+  padding-top: 13px !important;
+  padding-bottom: 13px !important;
+  border-bottom: 1px solid #EDF0F5 !important;
+}
+
+.sb-logo-img {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 9px !important;
+  box-shadow: none !important;
+}
+
+.sb-name {
+  color: #111827 !important;
+  font-size: 0.98rem !important;
+  font-weight: 750 !important;
+}
+
+.sb-subname {
+  color: #718096 !important;
+  font-size: 0.64rem !important;
+}
+
+.sb-nav {
+  padding: 12px 10px !important;
+  gap: 4px !important;
+}
+
+.sb-item {
+  min-height: 38px !important;
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+  border-radius: 10px !important;
+  color: #475569 !important;
+  font-size: 0.80rem !important;
+  font-weight: 550 !important;
+  gap: 10px !important;
+}
+
+.sb-item > svg {
+  width: 17px !important;
+  height: 17px !important;
+  stroke-width: 1.7 !important;
+  flex-shrink: 0 !important;
+}
+
+.sb-item:hover {
+  background: #F1F5F9 !important;
+  color: #172033 !important;
+  box-shadow: none !important;
+}
+
+.sb-item.active {
+  background: #0B1530 !important;
+  color: #FFFFFF !important;
+  font-weight: 650 !important;
+  box-shadow: none !important;
+}
+
+.sb-item.active svg {
+  color: #FFFFFF !important;
+  stroke-width: 2 !important;
+}
+
+.sb-expand {
+  border-color: #E0E6EF !important;
+  color: #475569 !important;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06) !important;
+}
+
+.sb-expand:hover {
+  background: #F1F5F9 !important;
+  color: #1E293B !important;
+}
+
+.sb-divider {
+  background: #EDF0F5 !important;
+}
+
+.sb-foot {
+  padding: 10px !important;
+  border-top: 1px solid #EDF0F5 !important;
+  gap: 5px !important;
+}
+
+.sb-subitem {
+  min-height: 34px !important;
+  padding: 7px 10px !important;
+  color: #475569 !important;
+  font-size: 0.80rem !important;
+  border-radius: 9px !important;
+}
+
+.sb-subitem:hover {
+  background: #F1F5F9 !important;
+  color: #172033 !important;
+}
+
+.sb-user-card {
+  padding: 8px !important;
+  border-radius: 11px !important;
+  background: #F8FAFC !important;
+  border: 1px solid #E5EAF1 !important;
+  margin-top: 5px !important;
+}
+
+.sb-avatar {
+  width: 30px !important;
+  height: 30px !important;
+  background: #DBEAFE !important;
+  color: #1D4ED8 !important;
+  box-shadow: none !important;
+  font-size: 0.75rem !important;
+}
+
+.sb-user-name {
+  color: #172033 !important;
+}
+
+.sb-user-role {
+  color: #718096 !important;
+}
+
+.sb-logout-btn {
+  color: #64748B !important;
+}
+
+.sb-logout-btn:hover {
+  color: #DC2626 !important;
+}
+
+
+/* ===== AttendAI: expanded sidebar + compact dashboard ===== */
+
+/* Expanded navigation */
+.sb {
+  width: 230px !important;
+  min-width: 230px !important;
+  background: #ffffff !important;
+}
+
+.sb-head {
+  padding: 12px 15px !important;
+  min-height: 60px !important;
+}
+
+.sb-brand {
+  gap: 9px !important;
+}
+
+.sb-logo-img {
+  width: 30px !important;
+  height: 30px !important;
+}
+
+.sb-nav {
+  padding: 10px 9px !important;
+  gap: 3px !important;
+}
+
+.sb-item {
+  min-height: 35px !important;
+  padding: 7px 10px !important;
+  gap: 9px !important;
+  font-size: 12px !important;
+  border-radius: 9px !important;
+}
+
+.sb-item > svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.sb-item.active {
+  background: #0b1530 !important;
+  box-shadow: none !important;
+}
+
+.sb-foot {
+  padding: 9px !important;
+}
+
+/* Compact dashboard canvas */
+.sa-dashboard {
+  padding: 12px 14px 16px !important;
+  background: #f5f7fb !important;
+}
+
+.sa-dashboard .sa-page-header {
+  margin-bottom: 10px !important;
+}
+
+.sa-dashboard .sa-page-icon {
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: 9px !important;
+}
+
+.sa-dashboard .sa-page-title h1 {
+  font-size: 18px !important;
+}
+
+.sa-dashboard .sa-page-title p {
+  font-size: 9px !important;
+  margin-top: 2px !important;
+}
+
+.sa-dashboard .sa-refresh,
+.sa-dashboard .sa-online {
+  height: 29px !important;
+  padding: 0 9px !important;
+  font-size: 9px !important;
+}
+
+/* Smaller KPI cards */
+.sa-dashboard .sa-kpis {
+  gap: 9px !important;
+  margin-bottom: 9px !important;
+}
+
+.sa-dashboard .sa-kpi {
+  min-height: 88px !important;
+  padding: 10px 12px !important;
+  border-radius: 14px !important;
+}
+
+.sa-dashboard .sa-kpi-icon {
+  width: 27px !important;
+  height: 27px !important;
+  border-radius: 8px !important;
+}
+
+.sa-dashboard .sa-kpi-icon svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
+.sa-dashboard .sa-kpi-label {
+  margin-top: 7px !important;
+  font-size: 9px !important;
+}
+
+.sa-dashboard .sa-kpi-value {
+  font-size: 20px !important;
+  margin-top: 3px !important;
+}
+
+.sa-dashboard .sa-kpi-note {
+  margin-top: 4px !important;
+  font-size: 8px !important;
+}
+
+/* Compact chart and information panels */
+.sa-dashboard .sa-main-grid,
+.sa-dashboard .sa-bottom-grid {
+  gap: 9px !important;
+  margin-bottom: 9px !important;
+}
+
+.sa-dashboard .sa-card {
+  border-radius: 15px !important;
+}
+
+.sa-dashboard .sa-chart-card {
+  padding: 11px 12px !important;
+}
+
+.sa-dashboard .sa-section-head {
+  margin-bottom: 7px !important;
+}
+
+@media (max-width: 1050px) {
+  .sb {
+    width: 210px !important;
+    min-width: 210px !important;
+  }
+
+  .sa-dashboard .sa-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .sa-dashboard .sa-main-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .sb {
+    width: 64px !important;
+    min-width: 64px !important;
+  }
+
+  .sa-dashboard {
+    padding: 10px !important;
+  }
+}
+
+
+/* =========================================
+   AttendAI — Reference Dashboard Design
+   ========================================= */
+
+.sa-dashboard {
+  background: #EEF2FF !important;
+  padding: 16px !important;
+  color: #172554;
+}
+
+/* Header */
+.sa-dashboard .sa-page-header {
+  margin-bottom: 14px !important;
+  align-items: center !important;
+}
+
+.sa-dashboard .sa-page-icon {
+  width: 34px !important;
+  height: 34px !important;
+  background: #DBEAFE !important;
+  color: #0965E8 !important;
+  border-radius: 9px !important;
+}
+
+.sa-dashboard .sa-page-title h1 {
+  font-size: 19px !important;
+  font-weight: 750 !important;
+  color: #1747A6 !important;
+}
+
+.sa-dashboard .sa-page-title p {
+  font-size: 10px !important;
+  color: #718096 !important;
+}
+
+/* Four compact metric cards */
+.sa-dashboard .sa-kpis {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  margin-bottom: 14px !important;
+}
+
+.sa-dashboard .sa-kpi {
+  min-height: 90px !important;
+  padding: 12px 14px !important;
+  border: 0 !important;
+  border-radius: 11px !important;
+  box-shadow: 0 4px 10px rgba(35, 60, 120, .12) !important;
+}
+
+.sa-dashboard .sa-kpi:nth-child(1) {
+  background: linear-gradient(120deg, #54D9A0, #21B77C) !important;
+  color: #fff !important;
+}
+
+.sa-dashboard .sa-kpi:nth-child(2) {
+  background: linear-gradient(120deg, #68AEF6, #347FE9) !important;
+  color: #fff !important;
+}
+
+.sa-dashboard .sa-kpi:nth-child(3) {
+  background: linear-gradient(120deg, #BD83F5, #9B4DE4) !important;
+  color: #fff !important;
+}
+
+.sa-dashboard .sa-kpi:nth-child(4) {
+  background: linear-gradient(120deg, #F77D8A, #EA4358) !important;
+  color: #fff !important;
+}
+
+.sa-dashboard .sa-kpi-label,
+.sa-dashboard .sa-kpi-value,
+.sa-dashboard .sa-kpi-note {
+  color: #fff !important;
+}
+
+.sa-dashboard .sa-kpi-label {
+  margin-top: 8px !important;
+  font-size: 10px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-weight: 600 !important;
+}
+
+.sa-dashboard .sa-kpi-value {
+  font-size: 25px !important;
+  font-weight: 800 !important;
+}
+
+.sa-dashboard .sa-kpi-note {
+  font-size: 9px !important;
+  opacity: .9;
+}
+
+.sa-dashboard .sa-kpi-icon {
+  width: 27px !important;
+  height: 27px !important;
+  background: rgba(255,255,255,.20) !important;
+  color: #fff !important;
+  border-radius: 8px !important;
+}
+
+.sa-dashboard .sa-kpi-change {
+  background: rgba(255,255,255,.23) !important;
+  color: #fff !important;
+}
+
+/* White chart panels */
+.sa-dashboard .sa-card {
+  background: #FFFFFF !important;
+  border: 1px solid #E2E8F7 !important;
+  border-radius: 15px !important;
+  box-shadow: 0 5px 15px rgba(45, 64, 115, .07) !important;
+}
+
+.sa-dashboard .sa-chart-card {
+  padding: 14px !important;
+}
+
+.sa-dashboard .sa-main-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  margin-bottom: 12px !important;
+}
+
+.sa-dashboard .sa-bottom-grid {
+  gap: 12px !important;
+  margin-bottom: 12px !important;
+}
+
+.sa-dashboard .sa-section-head {
+  margin-bottom: 9px !important;
+}
+
+/* Sidebar: reference-inspired light blue navigation */
+.sb {
+  background: #F2F6FF !important;
+  border-right: 1px solid #DCE6F8 !important;
+  box-shadow: none !important;
+}
+
+.sb-head {
+  border-bottom-color: #DCE6F8 !important;
+}
+
+.sb-name {
+  color: #1747A6 !important;
+}
+
+.sb-subname {
+  color: #6680AA !important;
+}
+
+.sb-nav {
+  gap: 4px !important;
+  padding: 12px 8px !important;
+}
+
+.sb-item {
+  min-height: 37px !important;
+  border-radius: 10px !important;
+  font-size: 12px !important;
+  color: #475569 !important;
+}
+
+.sb-item:hover {
+  background: #E1EBFF !important;
+  color: #1747A6 !important;
+}
+
+.sb-item.active {
+  background: #DCE9FF !important;
+  color: #075DE8 !important;
+  box-shadow: none !important;
+}
+
+.sb-item.active svg {
+  color: #075DE8 !important;
+}
+
+.sb-foot {
+  border-top-color: #DCE6F8 !important;
+}
+
+.sb-user-card {
+  background: #FFFFFF !important;
+  border-color: #DCE6F8 !important;
+}
+
+.sb-avatar {
+  background: #DCE9FF !important;
+  color: #075DE8 !important;
+  box-shadow: none !important;
+}
+
+/* Responsive layout */
+@media (max-width: 1050px) {
+  .sa-dashboard .sa-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .sa-dashboard .sa-main-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .sa-dashboard {
+    padding: 10px !important;
+  }
+
+  .sa-dashboard .sa-kpis {
+    gap: 8px !important;
+  }
+
+  .sa-dashboard .sa-kpi {
+    padding: 10px !important;
+  }
+}
+
+
+/* ===== Sidebar: larger, wider and easier to read ===== */
+.sb {
+  width: 280px !important;
+  min-width: 280px !important;
+  background: #F4F7FF !important;
+  border-right: 1px solid #DCE5F5 !important;
+}
+
+.sb-head {
+  min-height: 76px !important;
+  padding: 16px 18px !important;
+}
+
+.sb-brand {
+  gap: 12px !important;
+}
+
+.sb-logo-img {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 11px !important;
+}
+
+.sb-name {
+  font-size: 17px !important;
+  font-weight: 750 !important;
+}
+
+.sb-subname {
+  font-size: 11px !important;
+  margin-top: 4px !important;
+}
+
+.sb-nav {
+  padding: 18px 12px !important;
+  gap: 7px !important;
+}
+
+.sb-item {
+  min-height: 46px !important;
+  padding: 11px 14px !important;
+  gap: 13px !important;
+  border-radius: 11px !important;
+  font-size: 14px !important;
+  font-weight: 550 !important;
+}
+
+.sb-item > svg {
+  width: 20px !important;
+  height: 20px !important;
+  flex-shrink: 0 !important;
+  stroke-width: 1.8 !important;
+}
+
+.sb-item.active {
+  background: #DCE9FF !important;
+  color: #075DE8 !important;
+  box-shadow: none !important;
+  font-weight: 700 !important;
+}
+
+.sb-item.active svg {
+  color: #075DE8 !important;
+}
+
+.sb-badge-live {
+  font-size: 10px !important;
+  padding: 3px 8px !important;
+}
+
+.sb-foot {
+  padding: 14px 12px !important;
+  gap: 7px !important;
+}
+
+.sb-subitem {
+  min-height: 42px !important;
+  padding: 10px 13px !important;
+  gap: 12px !important;
+  font-size: 13px !important;
+}
+
+.sb-subitem svg {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+.sb-user-card {
+  padding: 11px !important;
+  gap: 11px !important;
+  border-radius: 12px !important;
+}
+
+.sb-avatar {
+  width: 38px !important;
+  height: 38px !important;
+  font-size: 14px !important;
+}
+
+.sb-user-name {
+  font-size: 13px !important;
+}
+
+.sb-user-role {
+  font-size: 11px !important;
+}
+
+.sb-logout-btn svg {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+/* Keep collapsed mode usable */
+@media (max-width: 600px) {
+  .sb {
+    width: 68px !important;
+    min-width: 68px !important;
+  }
+}
+

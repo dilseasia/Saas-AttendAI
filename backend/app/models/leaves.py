@@ -55,11 +55,16 @@ class LeaveBalanceResponse(BaseModel):
 
 # ── Attendance Regularization / WFH Request Models ───────────────────
 class ApplyAttendanceRequest(BaseModel):
+    tenant_id: Optional[str] = Field(None, description="Company tenant ID (if admin/superadmin)")
     emp_id: Optional[str] = Field(None, description="Employee ID e.g. 'P6EMP01'")
-    request_type: str = Field("manual_punch", description="Type: 'manual_punch', 'wfh', 'photo_capture'")
-    request_date: date = Field(..., description="Target date for regularization")
-    punch_time: Optional[str] = Field(None, description="Optional time e.g. '09:15:00'")
-    reason: str = Field(..., description="Reason for regularization request")
+    request_type: str = Field("manual_entry", description="Type: 'manual_entry', 'wfh', 'leave'")
+    request_date: date = Field(..., description="Target date for regularization or leave start")
+    to_date: Optional[date] = Field(None, description="Target end date for multi-day WFH or leave")
+    in_time: Optional[str] = Field(None, description="In-time e.g. '09:30:00'")
+    out_time: Optional[str] = Field(None, description="Out-time e.g. '18:30:00'")
+    punch_time: Optional[str] = Field(None, description="Optional time alias for in_time")
+    leave_type: Optional[str] = Field(None, description="Leave code (CL, SL, PL, LWP) if request_type='leave'")
+    reason: str = Field(..., description="Reason for request")
 
 
 class AttendanceRequestResponse(BaseModel):
@@ -69,8 +74,11 @@ class AttendanceRequestResponse(BaseModel):
     company_name: Optional[str] = None
     name: str
     request_type: str
+    source_type: Optional[str] = "attendance"
     request_date: date
     to_date: Optional[date] = None
+    in_time: Optional[str] = None
+    out_time: Optional[str] = None
     punch_time: Optional[str] = None
     reason: str
     status: str
@@ -80,8 +88,23 @@ class AttendanceRequestResponse(BaseModel):
     remarks: Optional[str] = None
 
 
-class BulkReviewRequest(BaseModel):
-    ids: List[int] = Field(..., description="List of request IDs to review")
+class ReviewItem(BaseModel):
+    id: int
+    source_type: Optional[str] = "attendance"
+
+
+class ReviewSingleRequest(BaseModel):
+    id: int
     status: str = Field(..., description="'approved' or 'rejected'")
     remarks: Optional[str] = Field(None, description="Optional reviewer remarks")
+    source_type: Optional[str] = Field("attendance", description="'attendance' or 'leave'")
+
+
+class BulkReviewRequest(BaseModel):
+    ids: Optional[List[int]] = Field(default=[], description="List of request IDs to review")
+    items: Optional[List[dict]] = Field(default=None, description="List of items with id and source_type")
+    source_type: Optional[str] = Field(None, description="Default source_type ('attendance' or 'leave') if items omitted")
+    status: str = Field(..., description="'approved' or 'rejected'")
+    remarks: Optional[str] = Field(None, description="Optional reviewer remarks")
+
 

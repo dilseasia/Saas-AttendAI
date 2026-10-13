@@ -23,18 +23,59 @@ export function ReportsPage({ authData }: Props) {
   const [loading, setLoading] = useState(true);
 
   // Filters
-  const [companies, setCompanies] = useState<Company[]>([
-    { id: 'ALL', name: 'All Companies' },
-    { id: '35dc9aa2-18e4-489c-aa53-df21f4e3cf8f', name: 'Seasia Infotech' },
+  const DEFAULT_COMPANIES: Company[] = [
     { id: '2d2506a2-e75f-47c7-a880-3f911e702b4e', name: 'Moogle Labs' },
     { id: '88c18b1c-4015-478d-adfa-7030e11beacb', name: 'OpenSource' },
-  ]);
+    { id: '35dc9aa2-18e4-489c-aa53-df21f4e3cf8f', name: 'Seasia Infotech' },
+  ];
+  const [companies, setCompanies] = useState<Company[]>(DEFAULT_COMPANIES);
   const [selectedCoId, setSelectedCoId] = useState<string>('ALL');
   const [department, setDepartment] = useState('All Departments');
   const [status, setStatus] = useState('All Status');
   const [searchName, setSearchName] = useState('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState('Attendance Photo');
+
+  const openAttendancePhoto = async (photoUrl: string, title: string) => {
+    try {
+      console.log('Opening attendance photo:', photoUrl);
+
+      const response = await fetch(photoUrl, {
+        headers: token
+          ? { Authorization: `Bearer ${token}` }
+          : {},
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          "PHOTO REQUEST FAILED:",
+          response.status,
+          response.statusText,
+          errorText,
+          "URL:",
+          photoUrl
+        );
+        throw new Error(
+          `Photo request failed: ${response.status} ${response.statusText}: ${errorText}`
+        );
+      }
+
+      const blob = await response.blob();
+
+      if (!blob.size) {
+        throw new Error('Photo response is empty');
+      }
+
+      const imageUrl = URL.createObjectURL(blob);
+
+      setPreviewTitle(title);
+      setPreviewImage(imageUrl);
+    } catch (error) {
+      console.error('Failed to open attendance photo:', error);
+      alert('Unable to load attendance photo. Please check the backend/photo endpoint.');
+    }
+  };
 
   const isSuperAdmin =
     authData.user?.role === 'super_admin' ||
@@ -45,39 +86,44 @@ export function ReportsPage({ authData }: Props) {
   useEffect(() => {
     if (isSuperAdmin) {
       fetch(`${API.replace('/auth', '')}/billing/companies`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       })
         .then(r => r.json())
         .then(d => {
-          if (d.success && Array.isArray(d.companies)) {
-            setCompanies([
-              { id: 'ALL', name: 'All Companies' },
-              ...d.companies.filter(
-                (c: Company) =>
-                  c.id !== 'ALL' &&
-                  c.name?.toLowerCase() !== 'saas attend-ai platform hq'
-              )
-            ]);
-            setSelectedCoId('ALL');
-          } else {
-            setCompanies([
-              { id: 'ALL', name: 'All Companies' },
-              { id: '35dc9aa2-18e4-489c-aa53-df21f4e3cf8f', name: 'Seasia Infotech' },
-              { id: '2d2506a2-e75f-47c7-a880-3f911e702b4e', name: 'Moogle Labs' },
-              { id: '88c18b1c-4015-478d-adfa-7030e11beacb', name: 'OpenSource' }
-            ]);
-            setSelectedCoId('ALL');
-          }
+          const allowedNames = [
+            'Moogle Labs',
+            'OpenSource',
+            'Seasia Infotech',
+          ];
+
+          const apiCompanies: Company[] =
+            d.success && Array.isArray(d.companies)
+              ? d.companies.filter(
+                  (c: Company) => allowedNames.includes(c.name)
+                )
+              : [];
+
+          const allowedCompanies =
+            apiCompanies.length > 0
+              ? apiCompanies
+              : DEFAULT_COMPANIES;
+
+          const dropdownCompanies: Company[] = [
+            { id: 'ALL', name: 'All Companies' },
+            ...allowedCompanies,
+          ];
+
+          setCompanies(dropdownCompanies);
+
+          // Super Admin starts with All Companies
+          setSelectedCoId('ALL');
         })
         .catch(() => {
           setCompanies([
             { id: 'ALL', name: 'All Companies' },
-            { id: '35dc9aa2-18e4-489c-aa53-df21f4e3cf8f', name: 'Seasia Infotech' },
-            { id: '2d2506a2-e75f-47c7-a880-3f911e702b4e', name: 'Moogle Labs' },
-            { id: '88c18b1c-4015-478d-adfa-7030e11beacb', name: 'OpenSource' }
+            ...DEFAULT_COMPANIES,
           ]);
+
           setSelectedCoId('ALL');
         });
     } else {
@@ -102,81 +148,149 @@ export function ReportsPage({ authData }: Props) {
         Authorization: `Bearer ${token}`,
       };
 
-      const selectedCompanies =
-        selectedCoId === 'ALL'
-          ? companies.filter(c => c.id !== 'ALL')
-          : companies.filter(c => c.id === selectedCoId);
+      // =====================================================
+      // ALL COMPANIES
+      // =====================================================
+      if (selectedCoId === 'ALL') {
+        const allowedCompanies = companies.filter(
+          company => company.id !== 'ALL'
+        );
 
-      const companyList =
-        selectedCompanies.length > 0
-          ? selectedCompanies
-          : selectedCoId === 'ALL'
-            ? [
-                { id: '35dc9aa2-18e4-489c-aa53-df21f4e3cf8f', name: 'Seasia Infotech' },
-                { id: '2d2506a2-e75f-47c7-a880-3f911e702b4e', name: 'Moogle Labs' },
-                { id: '88c18b1c-4015-478d-adfa-7030e11beacb', name: 'OpenSource' },
-              ]
-            : [{ id: selectedCoId, name: 'Selected Company' }];
+        const results = await Promise.all(
+          allowedCompanies.map(async company => {
+            const [logRes, sumRes] = await Promise.all([
+              fetch(
+                `${API}/attendance/daily?date=${encodeURIComponent(date)}&tenant_id=${encodeURIComponent(company.id)}`,
+                { headers }
+              ),
+              fetch(
+                `${API}/attendance/summary?date=${encodeURIComponent(date)}&tenant_id=${encodeURIComponent(company.id)}`,
+                { headers }
+              ),
+            ]);
 
-      const results = await Promise.all(
-        companyList.map(async company => {
-          const [logRes, sumRes] = await Promise.all([
-            fetch(
-              `${API}/attendance/daily?date=${date}&tenant_id=${company.id}`,
-              { headers }
-            ),
-            fetch(
-              `${API}/attendance/summary?date=${date}&tenant_id=${company.id}`,
-              { headers }
-            ),
-          ]);
+            const logData = await logRes.json();
+            const sumData = await sumRes.json();
 
-          const logData = await logRes.json();
-          const sumData = await sumRes.json();
-
-          return {
-            company,
-            records: Array.isArray(logData.records)
+            const records = Array.isArray(logData.records)
               ? logData.records.map((record: any) => ({
                   ...record,
                   tenant_id: company.id,
                   company_name: company.name,
+                  name: `${record.name} (${record.emp_id || record.employee_id || ''}) (${company.name})`,
                 }))
-              : [],
-            summary: sumData?.success ? sumData : null,
-          };
-        })
+              : [];
+
+            return {
+              company,
+              records,
+              summary: sumData?.success
+                ? sumData
+                : {
+                    total_employees: 0,
+                    present_count: 0,
+                    absent_count: 0,
+                    late_count: 0,
+                    on_leave_count: 0,
+                  },
+            };
+          })
+        );
+
+        // Combine all employees from the 3 companies
+        const combinedLogs = results.flatMap(
+          result => result.records
+        );
+
+        // Combine summary numbers
+        const combinedSummary = results.reduce(
+          (total, result) => ({
+            total_employees:
+              total.total_employees +
+              Number(result.summary.total_employees || 0),
+
+            present_count:
+              total.present_count +
+              Number(result.summary.present_count || 0),
+
+            absent_count:
+              total.absent_count +
+              Number(result.summary.absent_count || 0),
+
+            late_count:
+              total.late_count +
+              Number(result.summary.late_count || 0),
+
+            on_leave_count:
+              total.on_leave_count +
+              Number(result.summary.on_leave_count || 0),
+          }),
+          {
+            total_employees: 0,
+            present_count: 0,
+            absent_count: 0,
+            late_count: 0,
+            on_leave_count: 0,
+          }
+        );
+
+        setLogs(combinedLogs);
+
+        setSummary({
+          success: true,
+          ...combinedSummary,
+        });
+
+        return;
+      }
+
+      // =====================================================
+      // SINGLE COMPANY
+      // =====================================================
+      const [logRes, sumRes] = await Promise.all([
+        fetch(
+          `${API}/attendance/daily?date=${encodeURIComponent(date)}&tenant_id=${encodeURIComponent(selectedCoId)}`,
+          { headers }
+        ),
+        fetch(
+          `${API}/attendance/summary?date=${encodeURIComponent(date)}&tenant_id=${encodeURIComponent(selectedCoId)}`,
+          { headers }
+        ),
+      ]);
+
+      const logData = await logRes.json();
+      const sumData = await sumRes.json();
+
+      const companyName =
+        companies.find(c => c.id === selectedCoId)?.name || '';
+
+      const records = Array.isArray(logData.records)
+        ? logData.records.map((record: any) => ({
+            ...record,
+            tenant_id: selectedCoId,
+            company_name: companyName,
+            name: record.name,
+          }))
+        : [];
+
+      setLogs(records);
+
+      setSummary(
+        sumData?.success
+          ? sumData
+          : {
+              total_employees: 0,
+              present_count: 0,
+              absent_count: 0,
+              late_count: 0,
+              on_leave_count: 0,
+            }
       );
-
-      const combinedLogs = results.flatMap(r => r.records);
-
-      const combinedSummary = results.reduce(
-        (acc, r) => ({
-          total_employees:
-            acc.total_employees + (r.summary?.total_employees || 0),
-          present_count:
-            acc.present_count + (r.summary?.present_count || 0),
-          absent_count:
-            acc.absent_count + (r.summary?.absent_count || 0),
-          late_count:
-            acc.late_count + (r.summary?.late_count || 0),
-          on_leave_count:
-            acc.on_leave_count + (r.summary?.on_leave_count || 0),
-        }),
-        {
-          total_employees: 0,
-          present_count: 0,
-          absent_count: 0,
-          late_count: 0,
-          on_leave_count: 0,
-        }
-      );
-
-      setLogs(combinedLogs);
-      setSummary(combinedSummary);
     } catch (e) {
       console.error('Attendance load failed:', e);
+
       setLogs([]);
+
       setSummary({
         total_employees: 0,
         present_count: 0,
@@ -301,10 +415,13 @@ export function ReportsPage({ authData }: Props) {
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
-        height: '100%',
+        minHeight: '100%',
+        height: 'auto',
         background: '#f8fafc',
         fontFamily: "'Inter',-apple-system,sans-serif",
-        overflowY: 'auto',
+        overflowY: 'visible',
+        overflowX: 'hidden',
+        paddingBottom: '80px',
       }}
     >
       <style>{`
@@ -392,6 +509,7 @@ export function ReportsPage({ authData }: Props) {
           gap: 16px;
           padding: 24px 40px;
           background: #f1f5f9;
+          flex-wrap: wrap;
         }
 
         .pill-input {
@@ -666,16 +784,6 @@ export function ReportsPage({ authData }: Props) {
           onChange={e => setSearchName(e.target.value)}
         />
 
-        <input
-          type="date"
-          className="pill-input"
-          value={date}
-          onChange={e => setDate(e.target.value)}
-        />
-
-        <select className="pill-input">
-          <option>All</option>
-        </select>
 
         <button
           className="btn-export"
@@ -741,7 +849,36 @@ export function ReportsPage({ authData }: Props) {
                   return (
                     <tr key={idx}>
                       <td>
-                        {log.name} ({log.emp_id}{selectedCoId === 'ALL' && log.company_name ? ` (${log.company_name})` : ''})
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          {log.face_photo_url ? (
+                            <img
+                              src={log.face_photo_url}
+                              alt={log.name}
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: '50%',
+                                objectFit: 'cover',
+                                border: '2px solid #e2e8f0',
+                                flexShrink: 0,
+                              }}
+                              onError={(e: any) => { e.target.style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div style={{
+                              width: 36, height: 36, borderRadius: '50%',
+                              background: '#e2e8f0', display: 'flex',
+                              alignItems: 'center', justifyContent: 'center',
+                              fontSize: 14, fontWeight: 700, color: '#94a3b8', flexShrink: 0,
+                            }}>
+                              {log.name?.[0]?.toUpperCase() || '?'}
+                            </div>
+                          )}
+                          <div>
+                            <div style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.875rem' }}>{log.name}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{log.emp_id}</div>
+                          </div>
+                        </div>
                       </td>
 
                       <td>
@@ -770,47 +907,29 @@ export function ReportsPage({ authData }: Props) {
                             {log.first_in}
 
                             {log.first_in_image_url && (
-                              <Eye
-                                size={14}
-                                className="eye-icon"
-                                onClick={async () => {
-                                  try {
-                                    const response =
-                                      await fetch(
-                                        log.first_in_image_url,
-                                        {
-                                          headers: {
-                                            Authorization: `Bearer ${token}`,
-                                          },
-                                        }
-                                      );
-
-                                    if (
-                                      !response.ok
-                                    ) {
-                                      throw new Error(
-                                        'Failed to load attendance image'
-                                      );
-                                    }
-
-                                    const blob =
-                                      await response.blob();
-
-                                    const imageUrl =
-                                      URL.createObjectURL(
-                                        blob
-                                      );
-
-                                    setPreviewTitle('Entry Photo');
-                                    setPreviewImage(imageUrl);
-                                  } catch (error) {
-                                    console.error(
-                                      'Failed to open attendance image:',
-                                      error
-                                    );
-                                  }
+                              <button
+                                type="button"
+                                title="View Entry Photo"
+                                onClick={() =>
+                                  openAttendancePhoto(
+                                    log.first_in_image_url,
+                                    'Entry Photo'
+                                  )
+                                }
+                                style={{
+                                  border: 'none',
+                                  background: 'transparent',
+                                  padding: 2,
+                                  margin: 0,
+                                  cursor: 'pointer',
+                                  color: '#6366f1',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
                                 }}
-                              />
+                              >
+                                <Eye size={15} />
+                              </button>
                             )}
                           </div>
                         ) : (
@@ -825,47 +944,29 @@ export function ReportsPage({ authData }: Props) {
                             {log.last_out}
 
                             {log.last_out_image_url && (
-                              <Eye
-                                size={14}
-                                className="eye-icon"
-                                onClick={async () => {
-                                  try {
-                                    const response =
-                                      await fetch(
-                                        log.last_out_image_url,
-                                        {
-                                          headers: {
-                                            Authorization: `Bearer ${token}`,
-                                          },
-                                        }
-                                      );
-
-                                    if (
-                                      !response.ok
-                                    ) {
-                                      throw new Error(
-                                        'Failed to load last exit image'
-                                      );
-                                    }
-
-                                    const blob =
-                                      await response.blob();
-
-                                    const imageUrl =
-                                      URL.createObjectURL(
-                                        blob
-                                      );
-
-                                    setPreviewTitle('Exit Photo');
-                                    setPreviewImage(imageUrl);
-                                  } catch (error) {
-                                    console.error(
-                                      'Failed to open last exit image:',
-                                      error
-                                    );
-                                  }
+                              <button
+                                type="button"
+                                title="View Exit Photo"
+                                onClick={() =>
+                                  openAttendancePhoto(
+                                    log.last_out_image_url,
+                                    'Exit Photo'
+                                  )
+                                }
+                                style={{
+                                  border: 'none',
+                                  background: 'transparent',
+                                  padding: 2,
+                                  margin: 0,
+                                  cursor: 'pointer',
+                                  color: '#6366f1',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
                                 }}
-                              />
+                              >
+                                <Eye size={15} />
+                              </button>
                             )}
                           </div>
                         ) : (

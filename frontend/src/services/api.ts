@@ -136,17 +136,35 @@ export async function fetchPlans(): Promise<{ success: boolean; plans: PlanItem[
   return data;
 }
 
-export async function createCheckoutSession(token: string, planId: string): Promise<{ success: boolean; checkout_url: string; session_id: string }> {
+export async function createCheckoutSession(token: string, planId: string, tenantId?: string): Promise<{ success: boolean; checkout_url: string; session_id: string }> {
   const res = await fetch(`${API_BASE_URL.replace('/auth', '')}/billing/create-checkout-session`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ plan_id: planId }),
+    body: JSON.stringify({ plan_id: planId, tenant_id: tenantId }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || data.detail || 'Failed to initialize Stripe checkout.');
+  return data;
+}
+
+export async function adminUpdateCompanyPlan(
+  token: string,
+  tenantId: string,
+  planId: string
+): Promise<{ success: boolean; message: string; tenant_id: string; plan: string; plan_name: string }> {
+  const res = await fetch(`${API_BASE_URL.replace('/auth', '')}/billing/admin-update-plan`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ tenant_id: tenantId, plan_id: planId }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || data.detail || 'Failed to update company plan.');
   return data;
 }
 
@@ -225,6 +243,108 @@ export async function fetchSuperAdminDashboard() {
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Failed to fetch dashboard stats.');
   return data;
+}
+
+
+export interface CompanyAdminStats {
+  success: boolean;
+  date: string;
+  present_today: number;
+  total_employees: number;
+  entry_logs: number;
+  exit_logs: number;
+}
+
+export interface CompanyMonthlyAttendance {
+  success: boolean;
+  year: number;
+  month: number;
+  data: { date: string; present_count: number }[];
+}
+
+export interface CompanyActivityHours {
+  success: boolean;
+  date: string;
+  data: { hour: number; entry_count: number; exit_count: number }[];
+}
+
+async function fetchCompanyDashboardData<T>(
+  token: string,
+  endpoint: string
+): Promise<T> {
+  const res = await fetch(
+    `${API_BASE_URL.replace('/auth', '')}/dashboard/admin/${endpoint}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || data.message || 'Failed to load company dashboard.');
+  }
+  return data as T;
+}
+
+export function fetchCompanyAdminStats(token: string, date: string) {
+  return fetchCompanyDashboardData<CompanyAdminStats>(
+    token, `stats?date=${encodeURIComponent(date)}`
+  );
+}
+
+export function fetchCompanyMonthlyAttendance(
+  token: string, year: number, month: number
+) {
+  return fetchCompanyDashboardData<CompanyMonthlyAttendance>(
+    token, `monthly-attendance?year=${year}&month=${month}`
+  );
+}
+
+export function fetchCompanyActivityHours(token: string, date: string) {
+  return fetchCompanyDashboardData<CompanyActivityHours>(
+    token, `activity-hours?date=${encodeURIComponent(date)}`
+  );
+}
+
+
+export interface CompanyEmployee {
+  id: number;
+  tenant_id: string;
+  emp_id: string;
+  name: string;
+  department?: string | null;
+  designation?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  face_enrolled: boolean;
+  is_active: boolean;
+  joining_date?: string | null;
+  created_at: string;
+}
+
+export interface CompanyEmployeeListResponse {
+  success: boolean;
+  total: number;
+  employees: CompanyEmployee[];
+}
+
+export async function fetchCompanyEmployees(
+  token: string,
+  search = ""
+): Promise<CompanyEmployeeListResponse> {
+  const params = new URLSearchParams();
+  if (search.trim()) params.set("search", search.trim());
+
+  const query = params.toString();
+  const url = `${API_BASE_URL.replace("/auth", "")}/company/employees${query ? `?${query}` : ""}`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || data.message || "Failed to load company employees.");
+  }
+  return data as CompanyEmployeeListResponse;
 }
 
 export interface SuperAdminEmployeeItem {

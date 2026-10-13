@@ -30,6 +30,11 @@ import { AuthResponse } from '../services/api';
 
 const API = '/api/v1';
 
+// Camera MJPEG streams bypass the Vite proxy.
+// Normal API calls continue through port 3000 -> 8001.
+const CAMERA_API =
+  `${window.location.protocol}//${window.location.hostname}:8001/api/v1`;
+
 interface Props {
   authData: AuthResponse;
 }
@@ -127,40 +132,22 @@ export function CameraEnginePage({ authData }: Props) {
 
   // 1. Fetch Companies for Dropdown Select
   useEffect(() => {
-    if (isSuperAdmin && token) {
-      fetch(`${API.replace('/auth', '')}/billing/companies`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-        .then(r => r.json())
-        .then(d => {
-          if (d.success && Array.isArray(d.companies)) {
-            setCompanies(
-              d.companies.filter(
-                (c: any) =>
-                  c.id !== 'ALL' &&
-                  c.name?.toLowerCase() !== 'saas attend-ai platform hq'
-              )
-            );
-          } else {
-            setCompanies([
-              { id: 'ALL', name: 'All Companies' },
-              { id: 'sea-101', name: 'Seasia Infotech' },
-              { id: 'web-102', name: 'Webtunix Solutions' },
-              { id: 'sun-103', name: 'Sunrise Enterprises' }
-            ]);
-          }
-        })
-        .catch(() => {
-          setCompanies([
-            { id: 'ALL', name: 'All Companies' },
-            { id: 'sea-101', name: 'Seasia Infotech' },
-            { id: 'web-102', name: 'Webtunix Solutions' },
-            { id: 'sun-103', name: 'Sunrise Enterprises' }
-          ]);
-        });
+    const allowedCompanies: Company[] = [
+      { id: 'ALL', name: 'All Companies' },
+      { id: '2d2506a2-e75f-47c7-a880-3f911e702b4e', name: 'Moogle Labs' },
+      { id: '88c18b1c-4015-478d-adfa-7030e11beacb', name: 'OpenSource' },
+      { id: '35dc9aa2-18e4-489c-aa53-df21f4e3cf8f', name: 'Seasia Infotech' },
+    ];
+
+    if (isSuperAdmin) {
+      setCompanies(allowedCompanies);
+      setSelectedCompanyId('ALL');
     } else {
       setCompanies([
-        { id: authData.user?.tenant_id || 'my-tenant', name: authData.tenant?.name || 'My Company' }
+        {
+          id: authData.user?.tenant_id || 'my-tenant',
+          name: authData.tenant?.name || 'My Company'
+        }
       ]);
       setSelectedCompanyId(authData.user?.tenant_id || 'my-tenant');
     }
@@ -217,16 +204,43 @@ export function CameraEnginePage({ authData }: Props) {
   }, [selectedCompanyId]);
 
   // Actions: Toggle Stream Pause/Play
-  const togglePauseStream = (id: number) => {
+  const togglePauseStream = async (cam: CameraObj) => {
+    const nextState = !cam.is_active;
     setCameras(prev =>
-      prev.map(c => (c.id === id ? { ...c, is_active: !c.is_active } : c))
+      prev.map(c => (c.id === cam.id ? { ...c, is_active: nextState } : c))
     );
+    try {
+      await fetch(`${API}/company/cameras/${cam.id}/toggle?tenant_id=${cam.tenant_id}`, {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
+    } catch (e) {
+      console.error("Failed to toggle camera state:", e);
+    }
   };
 
-  // Action: Delete Camera
-  const handleDeleteCamera = (cam: CameraObj) => {
+  // Action: Delete Camera Handler (calls backend DELETE API)
+  const handleDeleteCamera = async (cam: CameraObj) => {
     if (!window.confirm(`Are you sure you want to delete camera "${cam.name}"?`)) return;
-    setCameras(prev => prev.filter(c => c.id !== cam.id));
+    try {
+      const res = await fetch(`${API}/company/cameras/${cam.id}?tenant_id=${cam.tenant_id}`, {
+        method: 'DELETE',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
+      if (res.ok) {
+        setCameras(prev => prev.filter(c => c.id !== cam.id));
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Failed to delete camera: ${err.detail || 'Server error'}`);
+      }
+    } catch (e) {
+      console.error("Error deleting camera:", e);
+      alert("Network error while deleting camera.");
+    }
   };
 
   // Action: Add Camera Handler
@@ -902,7 +916,7 @@ export function CameraEnginePage({ authData }: Props) {
                 {/* Video Feed Image / RTSP Canvas Stream */}
                 {cam.is_active ? (
                   <img
-                    src={`${API}/company/cameras/${cam.id}/feed?token=${token}&tenant_id=${selectedCompanyId}`}
+                    src={`${CAMERA_API}/company/cameras/${cam.id}/feed?token=${token}&tenant_id=${selectedCompanyId}`}
                     alt={cam.name}
                     className="video-stream-img"
                     onError={(e: any) => {
@@ -958,7 +972,7 @@ export function CameraEnginePage({ authData }: Props) {
                 <div className="card-actions-bar">
                   <button
                     className="btn-card-action"
-                    onClick={() => togglePauseStream(cam.id)}
+                    onClick={() => togglePauseStream(cam)}
                     title={cam.is_active ? 'Pause Stream' : 'Resume Stream'}
                   >
                     {cam.is_active ? <Pause size={14} /> : <Play size={14} />}
@@ -1053,7 +1067,7 @@ export function CameraEnginePage({ authData }: Props) {
             }}
           >
             <img
-              src={`${API}/company/cameras/${fullScreenCam.id}/feed?token=${token}&tenant_id=${selectedCompanyId}`}
+              src={`${CAMERA_API}/company/cameras/${fullScreenCam.id}/feed?token=${token}&tenant_id=${selectedCompanyId}`}
               alt="Live RTSP Stream"
               style={{
                 maxWidth: '100%',

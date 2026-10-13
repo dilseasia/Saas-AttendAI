@@ -1,3 +1,4 @@
+from pathlib import Path
 """
 services/camera_engine.py
 ──────────────────────────
@@ -124,11 +125,12 @@ def has_motion(frame: np.ndarray, camera_key: str) -> bool:
     return motion_score > MOTION_THRESHOLD
 
 
-def create_rtsp_connection(rtsp_url: str, timeout_ms: int = 5000) -> Optional[cv2.VideoCapture]:
+def create_rtsp_connection(rtsp_url: str, timeout_ms: int = 3000) -> Optional[cv2.VideoCapture]:
     """
     Creates an optimized RTSP Video Capture stream with minimal buffering latency.
     """
     logger.info("🔗 Connecting to camera RTSP stream: %s", rtsp_url[:60])
+    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "stimeout;2000000|max_delay;500000|rtsp_transport;tcp"
     
     try:
         cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
@@ -289,6 +291,14 @@ class MultiTenantCameraEngine:
 
         for face in faces_to_process:
             emb = face.embedding
+            logger.info(
+                f"LIVE EMBEDDING DEBUG camera={camera_id} "
+                f"shape={emb.shape} "
+                f"norm={float(np.linalg.norm(emb)):.4f} "
+                f"finite={bool(np.isfinite(emb).all())} "
+                f"bbox={face.bbox.astype(int).tolist()} "
+                f"frame_shape={frame.shape}"
+            )
             bbox = face.bbox.astype(int)
             x1, y1, x2, y2 = bbox
             area = (x2 - x1) * (y2 - y1)
@@ -322,10 +332,34 @@ class MultiTenantCameraEngine:
                     self.seen_known[key] = now_time
 
                     # Save recognized snapshot
-                    photo_dir = os.path.join("recognized_photos", tenant_id, now.strftime("%Y-%m-%d"), emp_id, camera_type)
+                    # Always store recognized photos at the SaaS project root.
+                    project_root = Path(__file__).resolve().parents[3]
+                    photo_dir = os.path.join(
+                        str(project_root),
+                        "recognized_photos",
+                        tenant_id,
+                        now.strftime("%Y-%m-%d"),
+                        emp_id,
+                        camera_type,
+                    )
                     os.makedirs(photo_dir, exist_ok=True)
-                    photo_path = os.path.join(photo_dir, f"{now.strftime('%H-%M-%S')}.jpg")
-                    cv2.imwrite(photo_path, frame)
+                    photo_path = os.path.join(
+                        photo_dir,
+                        f"{now.strftime('%H-%M-%S')}.jpg"
+                    )
+
+                    saved = cv2.imwrite(photo_path, frame)
+
+                    if not saved or not os.path.isfile(photo_path):
+                        logger.error(
+                            "❌ Failed to save recognized photo: %s",
+                            photo_path,
+                        )
+                    else:
+                        logger.info(
+                            "📸 Recognized photo saved: %s",
+                            photo_path,
+                        )
 
                     logger.info("✅ [%s] Attendance Logged: %s (%s) via Cam #%d", camera_type.upper(), name, emp_id, camera_id)
                     punches_logged.append({

@@ -27,6 +27,7 @@ from app.models.billing import (
     SuperAdminEmployeeListResponse,
     SuperAdminEmployeeItem,
     SuperAdminCreateEmployeeRequest,
+    AdminUpdateCompanyPlanRequest,
 )
 from app.services import billing_service
 
@@ -88,7 +89,34 @@ async def create_checkout_session(
     user: AuthUser,
     db: asyncpg.Connection = Depends(get_db),
 ) -> CheckoutSessionResponse:
-    return await billing_service.create_checkout_session(db, user.tenant_id, payload)
+    is_super = user.role == "super_admin" or user.email == "admin@seasia.com"
+    target_tenant_id = (payload.tenant_id if is_super and payload.tenant_id else user.tenant_id) or payload.tenant_id
+    if not target_tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A target tenant_id must be provided to upgrade the subscription plan.",
+        )
+    return await billing_service.create_checkout_session(db, target_tenant_id, payload)
+
+
+# ── POST /billing/admin-update-plan ───────────────────────────────
+@router.post(
+    "/admin-update-plan",
+    status_code=status.HTTP_200_OK,
+    summary="Directly update tenant plan as Super Admin",
+    description="Allows Super Admin to directly update any company's subscription plan without Stripe checkout.",
+)
+async def admin_update_company_plan(
+    payload: AdminUpdateCompanyPlanRequest,
+    user: AuthUser,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    if user.role != "super_admin" and user.email != "admin@seasia.com":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Super Admin can directly update company plans.",
+        )
+    return await billing_service.update_tenant_plan_direct(db, payload.tenant_id, payload.plan_id)
 
 
 # ── GET /billing/subscription ─────────────────────────────────────

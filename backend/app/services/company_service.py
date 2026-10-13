@@ -288,9 +288,14 @@ async def create_camera(
 
 
 async def get_cameras(db: asyncpg.Connection, tenant_id: str) -> CameraListResponse:
-    rows = await db.fetch(
-        "SELECT * FROM cameras WHERE tenant_id = $1 ORDER BY created_at ASC", tenant_id
-    )
+    if tenant_id and tenant_id.upper() != "ALL":
+        rows = await db.fetch(
+            "SELECT * FROM cameras WHERE tenant_id = $1 ORDER BY created_at ASC", tenant_id
+        )
+    else:
+        rows = await db.fetch(
+            "SELECT * FROM cameras ORDER BY created_at ASC"
+        )
     cameras = [_build_camera_response(r) for r in rows]
     return CameraListResponse(total=len(cameras), cameras=cameras)
 
@@ -336,9 +341,21 @@ async def update_camera(
 
 
 async def delete_camera(db: asyncpg.Connection, tenant_id: str, camera_id: int) -> bool:
-    res = await db.execute(
-        "DELETE FROM cameras WHERE tenant_id = $1 AND id = $2", tenant_id, camera_id
-    )
+    import uuid
+    # Nullify references in attendance_logs so foreign key constraints are not violated
+    await db.execute("UPDATE attendance_logs SET camera_id = NULL WHERE camera_id = $1", camera_id)
+
+    if tenant_id and str(tenant_id).upper() != "ALL":
+        try:
+            t_uuid = uuid.UUID(str(tenant_id))
+            res = await db.execute(
+                "DELETE FROM cameras WHERE tenant_id = $1 AND id = $2", t_uuid, camera_id
+            )
+        except (ValueError, TypeError):
+            res = await db.execute("DELETE FROM cameras WHERE id = $1", camera_id)
+    else:
+        res = await db.execute("DELETE FROM cameras WHERE id = $1", camera_id)
+
     if res == "DELETE 0":
         raise NotFoundError("Camera")
     return True

@@ -59,11 +59,11 @@ interface SidebarProps {
   authData: AuthResponse;
   activePage: ActivePage;
   onNavigate: (page: ActivePage) => void;
-  onLogout: () => void;
+  onLogout?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ authData, activePage, onNavigate, onLogout }) => {
-  const [userCollapsed, setUserCollapsed] = useState(true);
+export const Sidebar: React.FC<SidebarProps> = ({ authData, activePage, onNavigate }) => {
+  const [userCollapsed, setUserCollapsed] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const { user } = authData;
 
@@ -76,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ authData, activePage, onNaviga
       ? 'Company Admin'
       : 'Employee';
 
-  const W = collapsed ? '72px' : '250px';
+  const W = collapsed ? '76px' : '280px';
 
   return (
     <aside
@@ -337,6 +337,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ authData, activePage, onNaviga
         {NAV_ITEMS.map(item => {
           const Icon = item.icon;
           const isActive = activePage === item.page;
+
           return (
             <div
               key={item.id}
@@ -346,37 +347,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ authData, activePage, onNaviga
             >
               <Icon size={18} color={isActive ? '#ffffff' : '#64748b'} />
               <span className="sb-item-lbl">{item.label}</span>
-              {item.badge && <span className="sb-badge-live">{item.badge}</span>}
+              {item.badge && (
+                <span className="sb-badge-live">{item.badge}</span>
+              )}
             </div>
           );
         })}
       </div>
 
       <div className="sb-foot">
-        {!collapsed && (
-          <>
-            <div className="sb-subitem" onClick={() => onNavigate('billing')}>
-              <Settings size={16} color="#64748b" />
-              <span>Settings</span>
-            </div>
-            <div className="sb-subitem">
-              <HelpCircle size={16} color="#64748b" />
-              <span>Help &amp; Support</span>
-            </div>
-          </>
-        )}
+        <div
+          className="sb-subitem"
+          onClick={() => onNavigate('billing')}
+          title="Settings"
+        >
+          <Settings size={16} color="#64748b" />
+          {!collapsed && <span>Settings</span>}
+        </div>
 
-        <div className="sb-user-card">
-          <div className="sb-avatar">
-            SA
-          </div>
-          <div className="sb-user-info">
-            <div className="sb-user-name">{user?.name || 'Super Admin'}</div>
-            <div className="sb-user-role">{user?.email || 'admin@attendai.com'}</div>
-          </div>
-          <button className="sb-logout-btn" onClick={onLogout} title="Logout">
-            <LogOut size={16} />
-          </button>
+        <div className="sb-subitem" title="Help & Support">
+          <HelpCircle size={16} color="#64748b" />
+          {!collapsed && <span>Help &amp; Support</span>}
         </div>
       </div>
     </aside>

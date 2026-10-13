@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   CheckCircle2, Clock, AlertTriangle, Download, X, Zap, RefreshCw,
-  TrendingUp, Building2, ShieldCheck, CreditCard, Search, ArrowUpRight, ArrowDownRight, FileText, BarChart3
+  TrendingUp, Building2, ShieldCheck, CreditCard, Search, ArrowUpRight, ArrowDownRight, FileText, BarChart3,
+  Sliders, Check
 } from 'lucide-react';
 import {
   AuthResponse, fetchPlans, fetchCompaniesBilling, createCheckoutSession, fetchDashboardStats,
-  PlanItem, CompanyBillingItem, DashboardStatsResponse
+  PlanItem, CompanyBillingItem, DashboardStatsResponse, adminUpdateCompanyPlan
 } from '../services/api';
 
 type Tab = 'billing' | 'reports';
@@ -123,12 +124,14 @@ const CSS = `
 .bp-plan-tag.starter { background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; }
 
 .bp-modal-bg { position:fixed; inset:0; background:rgba(15,23,42,.6); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; z-index:200; padding:20px; }
-.bp-modal { background:#fff; border-radius:20px; width:100%; max-width:440px; box-shadow:0 20px 40px rgba(0,0,0,.2); overflow:hidden; }
+.bp-modal { background:#fff; border-radius:20px; width:100%; max-width:480px; box-shadow:0 20px 40px rgba(0,0,0,.2); overflow:hidden; }
 .bp-modal-head { display:flex; justify-content:space-between; align-items:center; padding:18px 22px; border-bottom:1px solid #e2e8f0; }
 .bp-modal-body { padding:20px 22px; }
 .bp-modal-foot { padding:14px 22px; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end; gap:10px; }
-.btn-outline { padding:99px; border:1px solid #cbd5e1; border-radius:10px; background:#fff; color:#334155; font-size:.82rem; font-weight:700; cursor:pointer; }
-.btn-dark { padding:9px 18px; border:none; border-radius:10px; background:#2563eb; color:#fff; font-size:.82rem; font-weight:800; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 2px 8px rgba(37,99,235,.3); }
+.btn-outline { padding:9px 18px; border:1px solid #cbd5e1; border-radius:10px; background:#fff; color:#334155; font-size:.82rem; font-weight:700; cursor:pointer; transition:all .15s; }
+.btn-outline:hover { background:#f1f5f9; }
+.btn-dark { padding:9px 18px; border:none; border-radius:10px; background:#2563eb; color:#fff; font-size:.82rem; font-weight:800; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 2px 8px rgba(37,99,235,.3); transition:all .15s; }
+.btn-dark:hover { background:#1d4ed8; }
 .bp-loading { display:flex; align-items:center; justify-content:center; gap:10px; padding:48px; color:#64748b; font-size:.85rem; font-weight:600; }
 .spinner { animation:spin .75s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
@@ -144,12 +147,14 @@ export const BillingPage: React.FC<{ authData: AuthResponse }> = ({ authData }) 
   const [search, setSearch] = useState('');
   const [upgradeModal, setUpgradeModal] = useState<PlanItem | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [updatingDirect, setUpdatingDirect] = useState(false);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('');
   const [mrrTab, setMrrTab] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
   const [churnTab, setChurnTab] = useState<'current' | 'previous'>('current');
 
   const { user, tenant, tokens } = authData;
-  const isSuperAdmin = (user?.role || '').toLowerCase().includes('super');
-  const currentPlan = (tenant?.plan || 'starter').toLowerCase();
+  const isSuperAdmin = (user?.role || '').toLowerCase().includes('super') || user?.email === 'admin@seasia.com';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -163,6 +168,9 @@ export const BillingPage: React.FC<{ authData: AuthResponse }> = ({ authData }) 
       if (c) {
         setCompanies(c.companies);
         setSummary({ total_companies: c.total_companies, total_mrr_usd: c.total_mrr_usd, active_subscriptions: c.active_subscriptions, trialing_subscriptions: c.trialing_subscriptions });
+        if (c.companies.length > 0) {
+          setSelectedTenantId(prev => prev || c.companies[0].id);
+        }
       }
       setStats(s);
     } catch (e) { console.error(e); }
@@ -171,34 +179,70 @@ export const BillingPage: React.FC<{ authData: AuthResponse }> = ({ authData }) 
 
   useEffect(() => { load(); }, [load]);
 
+  const targetCompany = companies.find(c => c.id === selectedTenantId) || companies[0];
+  const currentPlan = isSuperAdmin && targetCompany
+    ? (targetCompany.plan || 'starter').toLowerCase()
+    : (tenant?.plan || 'starter').toLowerCase();
+
   const handleCheckout = async () => {
     if (!upgradeModal || !tokens?.access_token) return;
+    const effectiveTenantId = isSuperAdmin ? (selectedTenantId || targetCompany?.id) : tenant?.id;
+    if (isSuperAdmin && !effectiveTenantId) {
+      alert('Please select a target company / tenant first.');
+      return;
+    }
     setCheckingOut(true);
     try {
-      const res = await createCheckoutSession(tokens.access_token, upgradeModal.id);
+      const res = await createCheckoutSession(tokens.access_token, upgradeModal.id, effectiveTenantId);
       window.location.href = res.checkout_url;
-    } catch { alert('Checkout failed. Please try again.'); }
-    finally { setCheckingOut(false); }
+    } catch (err: any) {
+      alert(err.message || 'Checkout failed. Please try again.');
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
+  const handleDirectUpdate = async () => {
+    if (!upgradeModal || !tokens?.access_token) return;
+    const effectiveTenantId = isSuperAdmin ? (selectedTenantId || targetCompany?.id) : tenant?.id;
+    if (!effectiveTenantId) {
+      alert('Please select a target company / tenant first.');
+      return;
+    }
+    setUpdatingDirect(true);
+    try {
+      const res = await adminUpdateCompanyPlan(tokens.access_token, effectiveTenantId, upgradeModal.id);
+      setActionSuccess(res.message || `Successfully assigned ${upgradeModal.name}!`);
+      setUpgradeModal(null);
+      await load();
+      setTimeout(() => setActionSuccess(null), 6000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to update company plan.');
+    } finally {
+      setUpdatingDirect(false);
+    }
   };
 
   // 10 Recent Subscribers Data (Which company subscribed to which plan)
   const defaultRecentSubscribers = [
-    { company_name: 'Acme Technologies Inc.', email: 'billing@acmetech.io', plan_name: 'Pro Plan', price_usd: 79, created_at: '2026-09-08T09:15:00Z', current_period_end: '2026-10-08T09:15:00Z', status: 'active', invoice_number: 'INV-2026-089' },
-    { company_name: 'TechFlow Systems', email: 'admin@techflow.co', plan_name: 'Enterprise Plan', price_usd: 199, created_at: '2026-09-07T14:30:00Z', current_period_end: '2026-10-07T14:30:00Z', status: 'active', invoice_number: 'INV-2026-088' },
-    { company_name: 'Global Vision Retail', email: 'contact@globalvision.com', plan_name: 'Pro Plan', price_usd: 79, created_at: '2026-09-06T11:20:00Z', current_period_end: '2026-10-06T11:20:00Z', status: 'active', invoice_number: 'INV-2026-087' },
-    { company_name: 'Apex AI Solutions', email: 'billing@apexai.dev', plan_name: 'Starter Plan', price_usd: 29, created_at: '2026-09-05T16:45:00Z', current_period_end: '2026-10-05T16:45:00Z', status: 'active', invoice_number: 'INV-2026-086' },
-    { company_name: 'Starlight Logistics', email: 'ops@starlight.io', plan_name: 'Pro Plan', price_usd: 79, created_at: '2026-09-04T08:10:00Z', current_period_end: '2026-10-04T08:10:00Z', status: 'active', invoice_number: 'INV-2026-085' },
-    { company_name: 'Nexus Security Ltd.', email: 'finance@nexussec.com', plan_name: 'Enterprise Plan', price_usd: 199, created_at: '2026-09-03T18:00:00Z', current_period_end: '2026-10-03T18:00:00Z', status: 'active', invoice_number: 'INV-2026-084' },
-    { company_name: 'Vanguard Retail Chain', email: 'admin@vanguard.org', plan_name: 'Pro Plan', price_usd: 79, created_at: '2026-09-02T10:05:00Z', current_period_end: '2026-10-02T10:05:00Z', status: 'active', invoice_number: 'INV-2026-083' },
-    { company_name: 'Quantum Softworks', email: 'accounts@quantumsoft.in', plan_name: 'Starter Plan', price_usd: 29, created_at: '2026-09-01T12:30:00Z', current_period_end: '2026-10-01T12:30:00Z', status: 'active', invoice_number: 'INV-2026-082' },
-    { company_name: 'Horizon Health Corp', email: 'pay@horizonhealth.net', plan_name: 'Enterprise Plan', price_usd: 199, created_at: '2026-08-30T15:15:00Z', current_period_end: '2026-09-30T15:15:00Z', status: 'active', invoice_number: 'INV-2026-081' },
-    { company_name: 'Pulse Media Labs', email: 'hello@pulsemedia.co', plan_name: 'Pro Plan', price_usd: 79, created_at: '2026-08-28T09:40:00Z', current_period_end: '2026-09-28T09:40:00Z', status: 'active', invoice_number: 'INV-2026-080' },
+    { id: 'seed-1', company_name: 'Acme Technologies Inc.', email: 'billing@acmetech.io', plan_name: 'Pro Plan', plan: 'pro', price_usd: 79, created_at: '2026-09-08T09:15:00Z', current_period_end: '2026-10-08T09:15:00Z', status: 'active', invoice_number: 'INV-2026-089' },
+    { id: 'seed-2', company_name: 'TechFlow Systems', email: 'admin@techflow.co', plan_name: 'Enterprise Plan', plan: 'enterprise', price_usd: 199, created_at: '2026-09-07T14:30:00Z', current_period_end: '2026-10-07T14:30:00Z', status: 'active', invoice_number: 'INV-2026-088' },
+    { id: 'seed-3', company_name: 'Global Vision Retail', email: 'contact@globalvision.com', plan_name: 'Pro Plan', plan: 'pro', price_usd: 79, created_at: '2026-09-06T11:20:00Z', current_period_end: '2026-10-06T11:20:00Z', status: 'active', invoice_number: 'INV-2026-087' },
+    { id: 'seed-4', company_name: 'Apex AI Solutions', email: 'billing@apexai.dev', plan_name: 'Starter Plan', plan: 'starter', price_usd: 29, created_at: '2026-09-05T16:45:00Z', current_period_end: '2026-10-05T16:45:00Z', status: 'active', invoice_number: 'INV-2026-086' },
+    { id: 'seed-5', company_name: 'Starlight Logistics', email: 'ops@starlight.io', plan_name: 'Pro Plan', plan: 'pro', price_usd: 79, created_at: '2026-09-04T08:10:00Z', current_period_end: '2026-10-04T08:10:00Z', status: 'active', invoice_number: 'INV-2026-085' },
+    { id: 'seed-6', company_name: 'Nexus Security Ltd.', email: 'finance@nexussec.com', plan_name: 'Enterprise Plan', plan: 'enterprise', price_usd: 199, created_at: '2026-09-03T18:00:00Z', current_period_end: '2026-10-03T18:00:00Z', status: 'active', invoice_number: 'INV-2026-084' },
+    { id: 'seed-7', company_name: 'Vanguard Retail Chain', email: 'admin@vanguard.org', plan_name: 'Pro Plan', plan: 'pro', price_usd: 79, created_at: '2026-09-02T10:05:00Z', current_period_end: '2026-10-02T10:05:00Z', status: 'active', invoice_number: 'INV-2026-083' },
+    { id: 'seed-8', company_name: 'Quantum Softworks', email: 'accounts@quantumsoft.in', plan_name: 'Starter Plan', plan: 'starter', price_usd: 29, created_at: '2026-09-01T12:30:00Z', current_period_end: '2026-10-01T12:30:00Z', status: 'active', invoice_number: 'INV-2026-082' },
+    { id: 'seed-9', company_name: 'Horizon Health Corp', email: 'pay@horizonhealth.net', plan_name: 'Enterprise Plan', plan: 'enterprise', price_usd: 199, created_at: '2026-08-30T15:15:00Z', current_period_end: '2026-09-30T15:15:00Z', status: 'active', invoice_number: 'INV-2026-081' },
+    { id: 'seed-10', company_name: 'Pulse Media Labs', email: 'hello@pulsemedia.co', plan_name: 'Pro Plan', plan: 'pro', price_usd: 79, created_at: '2026-08-28T09:40:00Z', current_period_end: '2026-09-28T09:40:00Z', status: 'active', invoice_number: 'INV-2026-080' },
   ];
 
   const subscriberList = (companies.length > 0 ? companies.slice(0, 10).map(c => ({
+    id: c.id,
     company_name: c.name,
     email: c.email,
     plan_name: c.plan_name || c.plan,
+    plan: c.plan,
     price_usd: c.price_usd || (c.plan === 'pro' ? 79 : c.plan === 'enterprise' ? 199 : 29),
     created_at: c.created_at || new Date().toISOString(),
     current_period_end: c.current_period_end || new Date(Date.now() + 30 * 86400000).toISOString(),
@@ -462,6 +506,83 @@ export const BillingPage: React.FC<{ authData: AuthResponse }> = ({ authData }) 
             <div className="bp-sub">Billing &amp; Subscription</div>
             <p className="bp-desc">Keep track of your subscription details, update your billing information, and control your account's payment.</p>
 
+            {/* Action Success Alert Banner */}
+            {actionSuccess && (
+              <div style={{
+                background: '#f0fdf4',
+                border: '1.5px solid #86efac',
+                color: '#15803d',
+                padding: '12px 18px',
+                borderRadius: 12,
+                fontSize: '.84rem',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                marginBottom: 20,
+                animation: 'fadeIn 0.2s ease-in-out'
+              }}>
+                <CheckCircle2 size={18} color="#16a34a" />
+                <span>{actionSuccess}</span>
+              </div>
+            )}
+
+            {/* Super Admin Tenant Selector Banner */}
+            {isSuperAdmin && (
+              <div style={{
+                background: '#f8fafc',
+                border: '1.5px solid #cbd5e1',
+                borderRadius: 14,
+                padding: '14px 18px',
+                marginBottom: 24,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 12,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Building2 size={18} color="#2563eb" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '.84rem', fontWeight: 800, color: '#0f172a' }}>
+                      Super Admin Plan Controller
+                    </div>
+                    <div style={{ fontSize: '.73rem', color: '#64748b', marginTop: 1 }}>
+                      Select a company / Tenant ID to manage and update its subscription tier.
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: '.78rem', fontWeight: 700, color: '#475569' }}>Target Company:</span>
+                  <select
+                    value={selectedTenantId}
+                    onChange={e => setSelectedTenantId(e.target.value)}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 9,
+                      border: '1.5px solid #94a3b8',
+                      background: '#fff',
+                      fontSize: '.82rem',
+                      fontWeight: 700,
+                      color: '#0f172a',
+                      outline: 'none',
+                      cursor: 'pointer',
+                      minWidth: 260,
+                    }}
+                  >
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} — [{c.plan.toUpperCase()}]
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
             {loading ? (
               <div className="bp-loading"><RefreshCw size={18} className="spinner" /> Loading billing data...</div>
             ) : (
@@ -471,7 +592,7 @@ export const BillingPage: React.FC<{ authData: AuthResponse }> = ({ authData }) 
                   {planOrder.map(pid => {
                     const plan = plans.find(p => p.id === pid);
                     if (!plan) return null;
-                    const isCurrent = !isSuperAdmin && currentPlan === pid;
+                    const isCurrent = currentPlan === pid;
                     const isDark = plan.popular;
                     return (
                       <div key={plan.id} className={`bp-plan${isDark ? ' dark' : ''}${isCurrent ? ' current' : ''}`}>
@@ -488,7 +609,7 @@ export const BillingPage: React.FC<{ authData: AuthResponse }> = ({ authData }) 
                           onClick={() => !isCurrent && setUpgradeModal(plan)}
                           disabled={isCurrent}
                         >
-                          {isCurrent ? 'Current Plan' : isDark ? 'Upgrade Plan' : `Get ${plan.name.split(' ')[0]}`}
+                          {isCurrent ? 'Current Plan' : isDark ? (isSuperAdmin ? 'Switch to Pro' : 'Upgrade Plan') : `Switch to ${plan.name.split(' ')[0]}`}
                         </button>
 
                         <div className="bp-features">
@@ -551,12 +672,28 @@ export const BillingPage: React.FC<{ authData: AuthResponse }> = ({ authData }) 
                               </span>
                             </td>
                             <td>
-                              <button
-                                style={{ background: 'none', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: 6, fontSize: '.73rem', fontWeight: 600, color: '#334155', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                                onClick={() => alert(`Downloading Invoice ${item.invoice_number}...`)}
-                              >
-                                <Download size={11} color="#64748b" /> Invoice
-                              </button>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <button
+                                  style={{ background: 'none', border: '1px solid #e2e8f0', padding: '5px 9px', borderRadius: 6, fontSize: '.73rem', fontWeight: 600, color: '#334155', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                                  onClick={() => alert(`Downloading Invoice ${item.invoice_number}...`)}
+                                >
+                                  <Download size={11} color="#64748b" /> Invoice
+                                </button>
+                                {isSuperAdmin && (
+                                  <button
+                                    style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '5px 9px', borderRadius: 6, fontSize: '.73rem', fontWeight: 700, color: '#2563eb', cursor: 'pointer' }}
+                                    onClick={() => {
+                                      if (item.id) setSelectedTenantId(item.id);
+                                      const currentP = (item.plan || item.plan_name || '').toLowerCase();
+                                      const nextPlan = plans.find(p => p.id !== currentP) || plans[1];
+                                      if (nextPlan) setUpgradeModal(nextPlan);
+                                    }}
+                                    title="Change plan for this specific company"
+                                  >
+                                    Change Plan
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         );
@@ -570,18 +707,68 @@ export const BillingPage: React.FC<{ authData: AuthResponse }> = ({ authData }) 
         )}
       </div>
 
-      {/* Upgrade Modal */}
+      {/* Upgrade / Change Plan Modal */}
       {upgradeModal && (
         <div className="bp-modal-bg" onClick={() => setUpgradeModal(null)}>
           <div className="bp-modal" onClick={e => e.stopPropagation()}>
             <div className="bp-modal-head">
-              <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>Upgrade to {upgradeModal.name}</h3>
-              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }} onClick={() => setUpgradeModal(null)}><X size={18} /></button>
+              <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
+                {isSuperAdmin ? `Update Company Plan: ${upgradeModal.name}` : `Upgrade to ${upgradeModal.name}`}
+              </h3>
+              <button
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                onClick={() => setUpgradeModal(null)}
+              >
+                <X size={18} />
+              </button>
             </div>
             <div className="bp-modal-body">
-              <p style={{ fontSize: '.84rem', color: '#334155', marginBottom: 14 }}>
-                Upgrading to <strong>{upgradeModal.name}</strong> — <strong>${upgradeModal.price_usd}/month</strong>
+              {/* Super Admin Tenant Selector Inside Modal */}
+              {isSuperAdmin && (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontSize: '.78rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: 6 }}>
+                    Target Company / Tenant ID <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
+                  <select
+                    value={selectedTenantId}
+                    onChange={e => setSelectedTenantId(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      border: '1.5px solid #cbd5e1',
+                      fontSize: '.82rem',
+                      fontWeight: 650,
+                      color: '#0f172a',
+                      background: '#fff',
+                      outline: 'none',
+                    }}
+                  >
+                    <option value="">-- Choose Company to Upgrade --</option>
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} — Current: {c.plan.toUpperCase()} (ID: {c.id})
+                      </option>
+                    ))}
+                  </select>
+
+                  {targetCompany && (
+                    <div style={{ marginTop: 8, padding: '10px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: '.74rem', color: '#475569' }}>
+                      <div style={{ fontWeight: 700, color: '#0f172a' }}>Selected: {targetCompany.name}</div>
+                      <div style={{ marginTop: 2 }}>
+                        Current Tier: <span style={{ textTransform: 'uppercase', fontWeight: 700, color: '#2563eb' }}>{targetCompany.plan_name || targetCompany.plan}</span>
+                        {' • '}
+                        Tenant ID: <code style={{ fontSize: '.7rem', background: '#e2e8f0', padding: '1px 5px', borderRadius: 4 }}>{targetCompany.id}</code>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <p style={{ fontSize: '.84rem', color: '#334155', marginBottom: 12 }}>
+                Target Plan: <strong>{upgradeModal.name}</strong> — <strong>${upgradeModal.price_usd}/month</strong>
               </p>
+
               <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {[
                   ['Max Employees', upgradeModal.max_employees >= 99999 ? 'Unlimited' : upgradeModal.max_employees],
@@ -594,9 +781,28 @@ export const BillingPage: React.FC<{ authData: AuthResponse }> = ({ authData }) 
                 ))}
               </div>
             </div>
-            <div className="bp-modal-foot">
+
+            <div className="bp-modal-foot" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
               <button className="btn-outline" onClick={() => setUpgradeModal(null)}>Cancel</button>
-              <button className="btn-dark" onClick={handleCheckout} disabled={checkingOut}>
+
+              {isSuperAdmin && (
+                <button
+                  className="btn-dark"
+                  style={{ background: '#10b981', boxShadow: '0 2px 8px rgba(16,185,129,.3)' }}
+                  onClick={handleDirectUpdate}
+                  disabled={updatingDirect || !selectedTenantId}
+                  title="Directly update database for this company without Stripe checkout"
+                >
+                  {updatingDirect ? <RefreshCw size={14} className="spinner" /> : <CheckCircle2 size={14} />}
+                  {updatingDirect ? 'Updating...' : 'Instant Update Plan'}
+                </button>
+              )}
+
+              <button
+                className="btn-dark"
+                onClick={handleCheckout}
+                disabled={checkingOut || (isSuperAdmin && !selectedTenantId)}
+              >
                 {checkingOut ? <RefreshCw size={14} className="spinner" /> : <Zap size={14} />}
                 {checkingOut ? 'Processing...' : 'Proceed to Checkout'}
               </button>

@@ -36,9 +36,14 @@ interface AttendanceLog {
   name: string;
   emp_id: string;
   timestamp: string;
+  date?: string;
+  time?: string;
   camera_type: 'entry' | 'exit' | string;
   camera_id?: string;
   confidence?: number;
+  company_name?: string;
+  tenant_id?: string;
+  isRealCamera?: boolean;
 }
 
 // Default fallback mock data matching screenshot for instant high-fidelity demonstration
@@ -155,32 +160,77 @@ export function AttendanceLogsPage({ authData }: Props) {
 
   // 2. Fetch Raw Attendance Logs
   const loadLogs = useCallback(async (tenantId: string, targetDate: string) => {
-    setLoading(true);
-    try {
-      const targetTenant = tenantId === 'ALL' ? '' : tenantId;
-      const res = await fetch(`${API}/attendance/raw-logs?date=${targetDate}&tenant_id=${targetTenant}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.logs && Array.isArray(data.logs) && data.logs.length > 0) {
-        setLogs(data.logs.map((log: any) => ({
-          ...log,
-          company_name: log.company_name || '',
-          tenant_id: log.tenant_id || '',
-        })));
-      } else {
-        setLogs([]);
-      }
-    } catch (e) {
-      console.error(e);
+    if (!token) {
       setLogs([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const params = new URLSearchParams();
+      params.set("date", targetDate);
+
+      // For Super Admin + All Companies, do NOT send tenant_id.
+      if (tenantId && tenantId !== "ALL") {
+        params.set("tenant_id", tenantId);
+      }
+
+      const url = `${API}/attendance/raw-logs?${params.toString()}`;
+
+      console.log("Attendance Logs request:", url);
+
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(
+          `Attendance API ${res.status}: ${text || res.statusText}`
+        );
+      }
+
+      const data = await res.json();
+
+      console.log("Attendance Logs response:", data);
+
+      const rows = Array.isArray(data?.logs) ? data.logs : [];
+
+      setLogs(
+        rows.map((log: any) => ({
+          ...log,
+          company_name: log.company_name || "",
+          tenant_id: log.tenant_id || "",
+        }))
+      );
+    } catch (error: any) {
+      console.error("Attendance Logs failed:", error);
+
+      setLogs([]);
+
+      if (error?.name === "AbortError") {
+        console.error("Attendance Logs request timed out after 10 seconds.");
+      }
     } finally {
+      window.clearTimeout(timeout);
       setLoading(false);
     }
   }, [token]);
 
   useEffect(() => {
-    loadLogs(selectedCompanyId, date);
+    if (selectedCompanyId) {
+      loadLogs(selectedCompanyId, date);
+    }
   }, [selectedCompanyId, date, loadLogs]);
 
   // Filter logs locally
@@ -630,8 +680,7 @@ export function AttendanceLogsPage({ authData }: Props) {
         <table className="att-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Employee ID</th>
+              <th>Employee</th>
               <th>Date</th>
               <th>Time</th>
               <th>Camera</th>
@@ -641,14 +690,14 @@ export function AttendanceLogsPage({ authData }: Props) {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#64748b', fontWeight: 600 }}>
+                <td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: '#64748b', fontWeight: 600 }}>
                   <RefreshCw size={24} className="animate-spin" color="#9333ea" style={{ margin: '0 auto 10px auto', display: 'block' }} />
                   Loading Attendance Records...
                 </td>
               </tr>
             ) : filteredLogs.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#64748b', fontWeight: 600 }}>
+                <td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: '#64748b', fontWeight: 600 }}>
                   No attendance records found for selected filters on {date}.
                 </td>
               </tr>
@@ -666,20 +715,25 @@ export function AttendanceLogsPage({ authData }: Props) {
                     <td>
                       <div className="user-cell">
                         {log.photo_url ? (
-                          <img src={log.photo_url} alt="" className="user-avatar" />
+                          <img
+                            src={log.photo_url}
+                            alt={log.name}
+                            className="user-avatar"
+                          />
                         ) : (
                           <div className="user-avatar-placeholder">
                             <User size={18} />
                           </div>
                         )}
-                        <span>{log.name}</span>
+
+                        <span>
+                          {log.name} ({log.emp_id})
+                          {selectedCompanyId === 'ALL' && log.company_name
+                            ? ` (${log.company_name})`
+                            : ''}
+                        </span>
                       </div>
                     </td>
-                    <td style={{ color: '#64748b', fontWeight: 600 }}>
-  {selectedCompanyId === 'ALL' && log.company_name
-    ? `${log.emp_id} (${log.company_name})`
-    : log.emp_id}
-</td>
                     <td style={{ color: '#475569', fontWeight: 600 }}>{dateStr}</td>
                     <td style={{ color: '#475569', fontWeight: 600 }}>{timeStr}</td>
                     <td>
@@ -697,7 +751,10 @@ export function AttendanceLogsPage({ authData }: Props) {
                         <button
                           className="btn-view-purple"
                           onClick={async () => {
-                            setSelectedLog(log);
+                            setSelectedLog({
+                              ...log,
+                              isRealCamera: false,
+                            });
 
                             try {
                               const cleanTime = String(log.time || '00:00:00')
@@ -708,11 +765,12 @@ export function AttendanceLogsPage({ authData }: Props) {
 
                               const photoUrl =
                                 `${API}/attendance/recognized-photo` +
-                                `?tenant_id=${encodeURIComponent(log.tenant_id)}` +
-                                `&date=${encodeURIComponent(log.date)}` +
+                                `?tenant_id=${encodeURIComponent(log.tenant_id || '')}` +
+                                `&date=${encodeURIComponent(log.date || '')}` +
                                 `&emp_id=${encodeURIComponent(log.emp_id)}` +
                                 `&cam_type=${encodeURIComponent(log.camera_type || 'entry')}` +
-                                `&file=${encodeURIComponent(fileName)}`;
+                                `&file=${encodeURIComponent(fileName)}` +
+                                `&time=${encodeURIComponent(cleanTime)}`;
 
                               const response = await fetch(photoUrl, {
                                 headers: {
@@ -726,18 +784,32 @@ export function AttendanceLogsPage({ authData }: Props) {
                                 );
                               }
 
+                              const isRealCamera =
+                                response.headers.get('X-Photo-Source') === 'camera_capture';
                               const blob = await response.blob();
                               const imageUrl = URL.createObjectURL(blob);
 
                               setSelectedLog((current: any) =>
                                 current
-                                  ? { ...current, photo_url: imageUrl }
+                                  ? {
+                                      ...current,
+                                      photo_url: imageUrl,
+                                      isRealCamera: isRealCamera,
+                                    }
                                   : current
                               );
                             } catch (error) {
                               console.error(
-                                'Failed to load attendance photo:',
+                                'No CCTV camera snapshot found, displaying registered profile photo:',
                                 error
+                              );
+                              setSelectedLog((current: any) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      isRealCamera: false,
+                                    }
+                                  : current
                               );
                             }
                           }}
@@ -781,20 +853,64 @@ export function AttendanceLogsPage({ authData }: Props) {
 
             <div style={{ padding: '22px', textAlign: 'center' }}>
               {selectedLog.photo_url ? (
-                <img
-                  src={selectedLog.photo_url}
-                  alt={selectedLog.name}
-                  style={{
-                    width: '100%',
-                    height: 260,
-                    borderRadius: 12,
-                    objectFit: 'cover',
-                    border: '1px solid #e2e8f0',
-                    margin: '0 auto 18px auto',
-                    display: 'block',
-                    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.10)'
-                  }}
-                />
+                <div style={{ position: 'relative', width: '100%', maxWidth: 380, margin: '0 auto 18px auto' }}>
+                  <img
+                    src={selectedLog.photo_url}
+                    alt={selectedLog.name}
+                    style={{
+                      width: '100%',
+                      height: 260,
+                      borderRadius: 12,
+                      objectFit: 'cover',
+                      border: '1px solid #e2e8f0',
+                      margin: '0 auto',
+                      display: 'block',
+                      boxShadow: '0 8px 24px rgba(15, 23, 42, 0.10)'
+                    }}
+                  />
+
+                  {/* Recognition Source Badge */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 10,
+                      left: 10,
+                      background: 'rgba(15, 23, 42, 0.85)',
+                      backdropFilter: 'blur(6px)',
+                      color: selectedLog.isRealCamera ? '#22c55e' : '#f59e0b',
+                      padding: '4px 10px',
+                      borderRadius: 6,
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      border: `1px solid ${
+                        selectedLog.isRealCamera
+                          ? 'rgba(34, 197, 94, 0.35)'
+                          : 'rgba(245, 158, 11, 0.35)'
+                      }`,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: selectedLog.isRealCamera ? '#22c55e' : '#f59e0b',
+                        boxShadow: selectedLog.isRealCamera
+                          ? '0 0 6px #22c55e'
+                          : 'none',
+                      }}
+                    />
+                    <span>
+                      {selectedLog.isRealCamera
+                        ? 'Live CCTV Snapshot'
+                        : 'Enrolled Profile Photo'}
+                    </span>
+                  </div>
+                </div>
               ) : (
                 <div style={{ width: 100, height: 100, borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', border: '3px solid #cbd5e1' }}>
                   <User size={48} color="#94a3b8" />
@@ -808,13 +924,17 @@ export function AttendanceLogsPage({ authData }: Props) {
                 <div>
                   <div style={{ fontSize: '.72rem', fontWeight: 700, color: '#64748b' }}>CAMERA TYPE</div>
                   <div style={{ fontSize: '.88rem', fontWeight: 800, color: selectedLog.camera_type === 'exit' ? '#c2410c' : '#15803d', marginTop: 2 }}>
-                    {selectedLog.camera_type === 'exit' ? '🟠 EXIT CAMERA' : '🟢 ENTRY CAMERA'}
+                    {selectedLog.isRealCamera
+                      ? (selectedLog.camera_type === 'exit' ? '🟠 EXIT CAMERA' : '🟢 ENTRY CAMERA')
+                      : '📋 MANUAL / REGULARIZED'}
                   </div>
                 </div>
                 <div>
                   <div style={{ fontSize: '.72rem', fontWeight: 700, color: '#64748b' }}>CONFIDENCE</div>
                   <div style={{ fontSize: '.88rem', fontWeight: 800, color: '#9333ea', marginTop: 2 }}>
-                    {Math.round((selectedLog.confidence || 0.98) * 100)}% Match
+                    {selectedLog.isRealCamera
+                      ? `${Math.round((selectedLog.confidence || 0.98) * 100)}% Match`
+                      : 'Verified Enrolled'}
                   </div>
                 </div>
               </div>

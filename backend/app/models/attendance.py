@@ -36,6 +36,7 @@ class DailyAttendanceRecord(BaseModel):
     first_in_image_url: Optional[str] = None
     last_out: Optional[str] = None
     last_out_image_url: Optional[str] = None
+    face_photo_url: Optional[str] = None
     entry_count: int = 0
     exit_count: int = 0
     total_hours: Optional[float] = 0.0
@@ -66,3 +67,24 @@ class AttendanceSummaryResponse(BaseModel):
 
     class Config:
         populate_by_name = True
+
+
+class ConvertAnonymousRequest(BaseModel):
+    tenant_id: Optional[str] = Field(None, description="Tenant ID (super admin can specify)")
+    date: str = Field(..., description="Date of capture (YYYY-MM-DD)")
+    cam_type: str = Field(..., description="Camera type or event ('entry' or 'exit')")
+    file: str = Field(..., description="Filename e.g. 11-27-16.jpg")
+    emp_id: str = Field(..., description="Employee ID to assign")
+    camera_id: Optional[int] = Field(None, description="Associated Camera ID")
+    mark_attendance: bool = Field(True, description="Whether to mark attendance punch")
+    update_face: bool = Field(True, description="Whether to update employee face model with this image")
+
+
+class ConvertAnonymousResponse(BaseModel):
+    success: bool = True
+    message: str
+    emp_id: str
+    name: str
+    event_type: str
+    date: str
+    time: str

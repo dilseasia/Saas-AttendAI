@@ -8,11 +8,16 @@ Prefix: /api/v1/company
 Tag: Company Setup
 """
 
+import asyncio
+import logging
+import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
+
 import asyncpg
+import cv2
 from fastapi import APIRouter, Depends, Query, status, Request
 from fastapi.responses import StreamingResponse
-import cv2
 
 from app.core.database import get_db
 from app.core.dependencies import AuthUser, AdminUser, HRUser, CurrentUser
@@ -34,8 +39,10 @@ from app.models.company import (
     HolidayListResponse,
 )
 from app.services import company_service
+from app.services.frame_store import get_frame
 
 router = APIRouter(prefix="/company", tags=["Company Setup"])
+logger = logging.getLogger(__name__)
 
 
 # ───────────────────────────────────────────────────────────────────
@@ -65,11 +72,13 @@ async def create_employee(
 )
 async def get_employees(
     user: AuthUser,
+    tenant_id: Optional[str] = Query(None, description="Super admin tenant override"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     search: Optional[str] = Query(None, description="Search by name, emp_id, or department"),
     db: asyncpg.Connection = Depends(get_db),
 ) -> EmployeeListResponse:
-    return await company_service.get_employees(db, user.tenant_id, is_active=is_active, search=search)
+    tid = tenant_id if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id else user.tenant_id
+    return await company_service.get_employees(db, tid, is_active=is_active, search=search)
 
 
 @router.get(
@@ -153,12 +162,11 @@ async def get_cameras(
     tenant_id: Optional[str] = Query(None, description="Super admin: target tenant override"),
     db: asyncpg.Connection = Depends(get_db),
 ) -> CameraListResponse:
-    # Super admin can query cameras for any tenant
-    effective_tenant = (
-        tenant_id
-        if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id
-        else user.tenant_id
-    )
+    # Super admin can query cameras for any tenant or all tenants
+    if (user.role == "super_admin" or user.email == "admin@seasia.com"):
+        effective_tenant = tenant_id if tenant_id else "ALL"
+    else:
+        effective_tenant = user.tenant_id
     return await company_service.get_cameras(db, effective_tenant)
 
 
@@ -195,11 +203,18 @@ async def toggle_camera(
     tenant_id: Optional[str] = Query(None),
     db: asyncpg.Connection = Depends(get_db),
 ) -> MessageResponse:
-    effective_tenant = (
-        tenant_id
-        if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id
-        else user.tenant_id
-    )
+    if (user.role == "super_admin" or user.email == "admin@seasia.com"):
+        if tenant_id and tenant_id not in ("ALL", "all"):
+            effective_tenant = tenant_id
+        else:
+            cam_row = await db.fetchrow("SELECT tenant_id FROM cameras WHERE id = $1", camera_id)
+            if not cam_row:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404, detail="Camera not found")
+            effective_tenant = str(cam_row["tenant_id"])
+    else:
+        effective_tenant = user.tenant_id
+
     row = await db.fetchrow(
         "SELECT id, is_active FROM cameras WHERE id = $1 AND tenant_id = $2",
         camera_id, effective_tenant
@@ -228,11 +243,18 @@ async def delete_camera(
     tenant_id: Optional[str] = Query(None),
     db: asyncpg.Connection = Depends(get_db),
 ) -> MessageResponse:
-    effective_tenant = (
-        tenant_id
-        if (user.role == "super_admin" or user.email == "admin@seasia.com") and tenant_id
-        else user.tenant_id
-    )
+    if (user.role == "super_admin" or user.email == "admin@seasia.com"):
+        if tenant_id and tenant_id not in ("ALL", "all"):
+            effective_tenant = tenant_id
+        else:
+            cam_row = await db.fetchrow("SELECT tenant_id FROM cameras WHERE id = $1", camera_id)
+            if not cam_row:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404, detail="Camera not found")
+            effective_tenant = str(cam_row["tenant_id"])
+    else:
+        effective_tenant = user.tenant_id
+
     await company_service.delete_camera(db, effective_tenant, camera_id)
     return MessageResponse(success=True, message="Camera deleted successfully")
 
@@ -283,8 +305,9 @@ async def delete_holiday(
     await company_service.delete_holiday(db, user.tenant_id, holiday_id)
     return MessageResponse(success=True, message="Holiday deleted successfully")
 
+
 # ───────────────────────────────────────────────────────────────────
-#  4. LIVE FEED STREAMING
+#  4. LIVE FEED STREAMING  (fully async — never blocks Uvicorn)
 # ───────────────────────────────────────────────────────────────────
 
 async def get_stream_user(request: Request) -> CurrentUser:
@@ -295,41 +318,155 @@ async def get_stream_user(request: Request) -> CurrentUser:
         payload = decode_access_token(token)
     except JWTError as exc:
         raise AuthenticationError(f"Invalid token: {exc}")
-        
+
     user = CurrentUser(payload)
     if user.role == "super_admin" or user.email == "admin@seasia.com":
         override = request.query_params.get("tenant_id")
-        if override and override not in ("undefined", "null"):
+        if override and override not in ("undefined", "null", "ALL", "all"):
             user.tenant_id = override
     return user
 
-def mjpeg_generator(stream_url: str):
+
+def _open_rtsp_sync(stream_url: str):
+    """
+    Blocking RTSP open — always called in a thread pool, never on the event loop.
+    Sets FFMPEG env vars before VideoCapture so TCP transport is used from the start.
+    """
+    import os
+    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+        "stimeout;3000000|max_delay;500000|rtsp_transport;tcp"
+    )
     cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    if not cap.isOpened():
-        return
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame = cv2.resize(frame, (1280, 720))
-            success, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
-            if success:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-    finally:
-        cap.release()
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 854)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    return cap
+
+
+def _read_frame_sync(cap) -> tuple:
+    """Blocking frame read — always called in a thread pool."""
+    return cap.read()
+
+
+def _make_offline_frame(message: str = "Camera Offline") -> bytes:
+    """Returns a styled dark JPEG for unavailable/offline streams."""
+    img = np.zeros((480, 854, 3), dtype=np.uint8)
+    img[:] = (20, 20, 32)
+    cv2.putText(img, message, (280, 230),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.3, (100, 100, 130), 2, cv2.LINE_AA)
+    cv2.putText(img, "RTSP stream not reachable", (255, 275),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (60, 60, 80), 1, cv2.LINE_AA)
+    _, buf = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    return buf.tobytes()
+
+
+async def _async_mjpeg_generator(camera_id: int):
+    """
+    Stream the latest JPEG produced by worker.py.
+
+    Does not open RTSP.
+    Does not use a database connection.
+    """
+
+    last_frame = None
+
+    while True:
+        frame = get_frame(camera_id)
+
+        if frame is not None:
+            last_frame = frame
+
+        if last_frame is None:
+            frame_bytes = _make_offline_frame("Waiting for camera")
+        else:
+            frame_bytes = last_frame
+
+        yield (
+            b"--frame\r\n"
+            b"Content-Type: image/jpeg\r\n"
+            b"Content-Length: " + str(len(frame_bytes)).encode() + b"\r\n"
+            b"Cache-Control: no-cache\r\n"
+            b"\r\n"
+            + frame_bytes
+            + b"\r\n"
+        )
+
+        await asyncio.sleep(0.5)
+
 
 @router.get("/cameras/{camera_id}/feed")
 async def camera_feed(
     camera_id: int,
     user: CurrentUser = Depends(get_stream_user),
-    db: asyncpg.Connection = Depends(get_db)
 ):
-    row = await db.fetchrow("SELECT stream_url, is_active FROM cameras WHERE id = $1 AND tenant_id = $2", camera_id, user.tenant_id)
-    if not row or not row["is_active"]:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Camera inactive or not found")
-    
-    return StreamingResponse(mjpeg_generator(row["stream_url"]), media_type="multipart/x-mixed-replace; boundary=frame")
+    """
+    Browser camera preview.
+
+    The worker owns the RTSP connections and stores the latest JPEG
+    frame in the shared frame store. This endpoint only reads those
+    frames and does not hold a PostgreSQL connection open.
+    """
+    from fastapi import HTTPException
+    from app.core import database
+
+    if database._pool is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database pool unavailable",
+        )
+
+    # Short database lookup only.
+    async with database._pool.acquire() as db:
+        if (
+            user.role == "super_admin"
+            or user.email == "admin@seasia.com"
+            or user.tenant_id in ("ALL", "all")
+        ):
+            row = await db.fetchrow(
+                """
+                SELECT id, stream_url, is_active
+                FROM cameras
+                WHERE id = $1
+                """,
+                camera_id,
+            )
+        else:
+            row = await db.fetchrow(
+                """
+                SELECT id, stream_url, is_active
+                FROM cameras
+                WHERE id = $1
+                  AND tenant_id = $2
+                """,
+                camera_id,
+                user.tenant_id,
+            )
+
+    # DB connection is released BEFORE the infinite MJPEG stream.
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="Camera not found",
+        )
+
+    if not row["is_active"]:
+        async def _paused_stream():
+            frame_bytes = _make_offline_frame("Stream Paused")
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n"
+                + frame_bytes
+                + b"\r\n"
+            )
+
+        return StreamingResponse(
+            _paused_stream(),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+        )
+
+    return StreamingResponse(
+        _async_mjpeg_generator(camera_id),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+

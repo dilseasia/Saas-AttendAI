@@ -29,8 +29,14 @@ class PlansResponse(BaseModel):
 
 class CheckoutSessionRequest(BaseModel):
     plan_id: str = Field(..., description="Target plan ID: 'starter', 'pro', or 'enterprise'")
+    tenant_id: str | None = Field(None, description="Optional tenant_id (for Super Admin upgrading a company)")
     success_url: str | None = None
     cancel_url: str | None = None
+
+
+class AdminUpdateCompanyPlanRequest(BaseModel):
+    tenant_id: str = Field(..., description="Target company tenant ID to update")
+    plan_id: str = Field(..., description="Target plan ID: 'starter', 'pro', or 'enterprise'")
 
 
 class CheckoutSessionResponse(BaseModel):

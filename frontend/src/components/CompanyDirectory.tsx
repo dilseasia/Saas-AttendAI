@@ -63,9 +63,12 @@ export const CompanyDirectory: React.FC = () => {
     fetchCompaniesBilling()
       .then((r) =>
         setCompanies(
-          (r.companies || []).filter(
-            (c: CompanyBillingItem) =>
-              c.name?.toLowerCase() !== 'saas attend-ai platform hq'
+          (r.companies || []).filter((c: CompanyBillingItem) =>
+            [
+              'seasia infotech',
+              'opensource',
+              'moogle labs',
+            ].includes(c.name?.trim().toLowerCase() || '')
           )
         )
       )

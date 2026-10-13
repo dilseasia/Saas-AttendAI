@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Search,
   Calendar,
@@ -19,11 +19,24 @@ import {
   Sparkles,
   ExternalLink,
   ShieldAlert,
-  UserPlus
+  UserPlus,
+  CheckCircle2,
+  UserCheck,
+  Check,
+  Loader2,
+  ChevronDown,
+  ScanFace,
+  Trash2
 } from 'lucide-react';
 import { AuthResponse } from '../services/api';
 
 const API = '/api/v1';
+
+const ALLOWED_COMPANIES = [
+  { id: '2d2506a2-e75f-47c7-a880-3f911e702b4e', name: 'Moogle Labs' },
+  { id: '88c18b1c-4015-478d-adfa-7030e11beacb', name: 'OpenSource' },
+  { id: '35dc9aa2-18e4-489c-aa53-df21f4e3cf8f', name: 'Seasia Infotech' },
+];
 
 interface Props {
   authData: AuthResponse;
@@ -35,16 +48,28 @@ interface Company {
   total_employees?: number;
 }
 
+interface EmployeeItem {
+  id: number;
+  tenant_id: string;
+  emp_id: string;
+  name: string;
+  department?: string;
+  designation?: string;
+  face_enrolled?: boolean;
+}
+
 interface AnonymousDetection {
   id: string | number;
   tenant_id: string;
   company_name: string;
   camera_code: string;
+  camera_id?: number;
   event_type: 'entry' | 'exit' | string;
   timestamp: string;
   date: string;
   time: string;
   image_url: string;
+  file_name?: string;
   location?: string;
 }
 
@@ -198,7 +223,7 @@ const DEFAULT_DETECTIONS: AnonymousDetection[] = [
 
 export function AnonymousLogsPage({ authData }: Props) {
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('ALL');
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('35dc9aa2-18e4-489c-aa53-df21f4e3cf8f');
 
   // Filter controls matching screenshot
   const [targetDate, setTargetDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -219,8 +244,14 @@ export function AnonymousLogsPage({ authData }: Props) {
   const [detections, setDetections] = useState<AnonymousDetection[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
 
-  // Inspector modal
+  // Inspector modal & Conversion state
   const [selectedDetection, setSelectedDetection] = useState<AnonymousDetection | null>(null);
+  const [showMarkModal, setShowMarkModal] = useState<boolean>(false);
+  const [selectedCamType, setSelectedCamType] = useState<string>('entry');
+  const [employees, setEmployees] = useState<EmployeeItem[]>([]);
+  const [empLoading, setEmpLoading] = useState<boolean>(false);
+  const [selectedEmpId, setSelectedEmpId] = useState<string>('');
+  const [converting, setConverting] = useState<boolean>(false);
 
   const isSuperAdmin =
     (authData.user?.role || '').toLowerCase().includes('super') || authData.user?.email === 'admin@seasia.com';
@@ -229,41 +260,21 @@ export function AnonymousLogsPage({ authData }: Props) {
   // 1. Fetch Companies for Dropdown
   useEffect(() => {
     if (isSuperAdmin && token) {
-      fetch(`${API.replace('/auth', '')}/billing/companies`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-        .then(r => r.json())
-        .then(d => {
-          if (d.success && Array.isArray(d.companies)) {
-            setCompanies([
-              { id: 'ALL', name: 'All Companies' },
-              ...d.companies.filter(
-                (c: Company) =>
-                  c.name?.toLowerCase() !== 'saas attend-ai platform hq'
-              )
-            ]);
-          } else {
-            setCompanies([
-              { id: 'ALL', name: 'All Companies' },
-              { id: 'sea-101', name: 'Seasia Infotech' },
-              { id: 'web-102', name: 'Webtunix Solutions' },
-              { id: 'sun-103', name: 'Sunrise Enterprises' }
-            ]);
-          }
-        })
-        .catch(() => {
-          setCompanies([
-            { id: 'ALL', name: 'All Companies' },
-            { id: 'sea-101', name: 'Seasia Infotech' },
-            { id: 'web-102', name: 'Webtunix Solutions' },
-            { id: 'sun-103', name: 'Sunrise Enterprises' }
-          ]);
-        });
-    } else {
       setCompanies([
-        { id: authData.user?.tenant_id || 'my-tenant', name: authData.tenant?.name || 'My Company' }
+        { id: 'ALL', name: 'All Companies' },
+        { id: '2d2506a2-e75f-47c7-a880-3f911e702b4e', name: 'Moogle Labs' },
+        { id: '88c18b1c-4015-478d-adfa-7030e11beacb', name: 'OpenSource' },
+        { id: '35dc9aa2-18e4-489c-aa53-df21f4e3cf8f', name: 'Seasia Infotech' },
       ]);
-      setSelectedCompanyId(authData.user?.tenant_id || 'my-tenant');
+    } else {
+      const tenantId = authData.user?.tenant_id || 'my-tenant';
+      const tenantName = authData.tenant?.name || 'My Company';
+
+      setCompanies([
+        { id: tenantId, name: tenantName }
+      ]);
+
+      setSelectedCompanyId(tenantId);
     }
   }, [isSuperAdmin, token, authData]);
 
@@ -280,18 +291,26 @@ export function AnonymousLogsPage({ authData }: Props) {
       });
       const data = await res.json();
       if (res.ok && data.logs && Array.isArray(data.logs) && data.logs.length > 0) {
-        const mapped: AnonymousDetection[] = data.logs.map((log: any, idx: number) => ({
-          id: log.id || `anon-${idx}`,
-          tenant_id: data.tenant_id || selectedCompanyId,
-          company_name: log.company_name || 'Seasia Infotech',
-          camera_code: log.camera_name || `CAM-0${(idx % 4) + 1}`,
-          event_type: log.camera_type || (idx % 2 === 0 ? 'entry' : 'exit'),
-          timestamp: log.timestamp || log.time || new Date().toISOString(),
-          date: appliedDate,
-          time: log.time || '11:30:00',
-          image_url: log.url ? `${log.url}&token=${token}` : '',
-          location: log.location || 'Main Gate Entrance'
-        }));
+        const mapped: AnonymousDetection[] = data.logs.map((log: any, idx: number) => {
+          let fileName = log.file_name;
+          if (!fileName && log.url) {
+            const m = log.url.match(/[?&]file=([^&]+)/);
+            if (m) fileName = decodeURIComponent(m[1]);
+          }
+          return {
+            id: log.id || `anon-${idx}`,
+            tenant_id: data.tenant_id || selectedCompanyId,
+            company_name: log.company_name || 'Seasia Infotech',
+            camera_code: log.camera_name || `CAM-0${(idx % 4) + 1}`,
+            event_type: log.camera_type || (idx % 2 === 0 ? 'entry' : 'exit'),
+            timestamp: log.timestamp || log.time || new Date().toISOString(),
+            date: log.date || appliedDate,
+            time: log.time || '11:30:00',
+            image_url: log.url ? `${log.url}&token=${token}` : '',
+            file_name: fileName || `${(log.time || '11:30:00').replace(/:/g, '-')}.jpg`,
+            location: log.location || 'Main Gate Entrance'
+          };
+        });
         setDetections(mapped);
       } else {
         setDetections([]);
@@ -301,6 +320,125 @@ export function AnonymousLogsPage({ authData }: Props) {
       setDetections([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch employees for the detection's company when modal opens
+  useEffect(() => {
+    if (selectedDetection) {
+      setSelectedEmpId('');
+      setSelectedCamType((selectedDetection.event_type || 'entry').toLowerCase());
+
+      const loadEmployees = async () => {
+        setEmpLoading(true);
+        try {
+          const tenantId = selectedDetection.tenant_id || selectedCompanyId;
+          const q = tenantId && tenantId !== 'ALL' ? `?tenant_id=${tenantId}` : '';
+          const res = await fetch(`${API}/company/employees${q}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setEmployees(data.employees || []);
+          } else {
+            setEmployees([]);
+          }
+        } catch (err) {
+          console.error('Failed to load employees for conversion', err);
+          setEmployees([]);
+        } finally {
+          setEmpLoading(false);
+        }
+      };
+
+      loadEmployees();
+    }
+  }, [selectedDetection, token, selectedCompanyId]);
+
+  // Handle Delete Anonymous Capture
+  const handleDeleteAnonymous = async () => {
+    if (!selectedDetection) return;
+    if (!confirm('Are you sure you want to delete this anonymous photo?')) return;
+
+    try {
+      const tenantId = selectedDetection.tenant_id || selectedCompanyId;
+      const fileName = selectedDetection.file_name || `${(selectedDetection.time || '11-30-00').replace(/:/g, '-')}.jpg`;
+      const dateStr = selectedDetection.date || appliedDate;
+      const camType = selectedDetection.event_type || 'entry';
+
+      const q = new URLSearchParams({
+        tenant_id: tenantId,
+        date: dateStr,
+        cam_type: camType,
+        file: fileName
+      });
+
+      const res = await fetch(`${API}/attendance/anonymous-photo?${q.toString()}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+
+      if (res.ok) {
+        setDetections(prev => prev.filter(d => d.id !== selectedDetection.id && d.image_url !== selectedDetection.image_url));
+        setSelectedDetection(null);
+        setShowMarkModal(false);
+      } else {
+        alert('Failed to delete anonymous photo.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error connecting to server.');
+    }
+  };
+
+  // Handle Convert Anonymous to Recognized Employee (marks punch + face embeddings)
+  const handleConvertAnonymous = async () => {
+    if (!selectedDetection || !selectedEmpId) {
+      alert('Please select an employee.');
+      return;
+    }
+
+    setConverting(true);
+
+    try {
+      const tenantId = selectedDetection.tenant_id || selectedCompanyId;
+      const fileName = selectedDetection.file_name || `${(selectedDetection.time || '11-30-00').replace(/:/g, '-')}.jpg`;
+      const dateStr = selectedDetection.date || appliedDate;
+      const camType = selectedCamType || selectedDetection.event_type || 'entry';
+
+      const payload = {
+        tenant_id: tenantId,
+        date: dateStr,
+        cam_type: camType,
+        file: fileName,
+        emp_id: selectedEmpId,
+        mark_attendance: true,
+        update_face: false
+      };
+
+      const res = await fetch(`${API}/attendance/convert-anonymous`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        // Remove this detection from view
+        setDetections(prev => prev.filter(d => d.id !== selectedDetection.id && d.image_url !== selectedDetection.image_url));
+        setShowMarkModal(false);
+        setSelectedDetection(null);
+      } else {
+        alert(data.detail || data.message || 'Failed to convert anonymous detection.');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error occurred while contacting server.');
+    } finally {
+      setConverting(false);
     }
   };
 
@@ -954,7 +1092,12 @@ export function AnonymousLogsPage({ authData }: Props) {
             <div
               key={det.id}
               className="anon-card"
-              onClick={() => setSelectedDetection(det)}
+              onClick={() => {
+                setSelectedDetection(det);
+                setSelectedCamType((det.event_type || 'entry').toLowerCase());
+                setSelectedEmpId('');
+                setShowMarkModal(false);
+              }}
             >
               {/* Snapshot Frame */}
               <div className="snapshot-frame">
@@ -993,179 +1136,345 @@ export function AnonymousLogsPage({ authData }: Props) {
         </div>
       )}
 
-      {/* Anonymous Detection Inspector Modal */}
+      {/* Anonymous Detection Modal matching Screenshot 2 & 3 */}
       {selectedDetection && (
         <div
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(15, 23, 42, 0.4)',
-            backdropFilter: 'blur(4px)',
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(5px)',
             zIndex: 1000,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             padding: 20
           }}
-          onClick={() => setSelectedDetection(null)}
+          onClick={() => {
+            if (!converting) {
+              setSelectedDetection(null);
+              setShowMarkModal(false);
+            }
+          }}
         >
           <div
             style={{
               background: '#ffffff',
               borderRadius: 20,
               width: '100%',
-              maxWidth: 520,
-              boxShadow: '0 20px 40px rgba(0,0,0,0.15)',
-              overflow: 'hidden'
+              maxWidth: 620,
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+              overflow: 'hidden',
+              position: 'relative',
+              padding: 18,
+              display: 'flex',
+              flexDirection: 'column'
             }}
             onClick={e => e.stopPropagation()}
           >
+            {/* Top Action Bar (Green user button on left, Red trash button on right) */}
             <div
               style={{
-                padding: '18px 24px',
-                borderBottom: '1px solid #e2e8f0',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                background: '#f8fafc'
+                marginBottom: 12
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <UserX size={20} color="#7c3aed" />
-                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>
-                  Anonymous Person Detection Details
-                </h3>
-              </div>
+              {/* Green circular user button (Opens Mark Attendance) */}
               <button
-                onClick={() => setSelectedDetection(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
+                type="button"
+                onClick={() => setShowMarkModal(true)}
+                title="Mark Attendance"
+                disabled={converting}
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: '50%',
+                  background: '#16a34a',
+                  color: '#ffffff',
+                  border: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: converting ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 3px 8px rgba(22, 163, 74, 0.35)',
+                  transition: 'transform 0.15s ease, background 0.15s ease'
+                }}
+                onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.08)')}
+                onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
               >
-                <X size={20} />
+                <UserPlus size={18} />
+              </button>
+
+              {/* Red circular trash button (Deletes anonymous photo) */}
+              <button
+                type="button"
+                onClick={handleDeleteAnonymous}
+                title="Delete Anonymous Photo"
+                disabled={converting}
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: '50%',
+                  background: '#ef4444',
+                  color: '#ffffff',
+                  border: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: converting ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 3px 8px rgba(239, 68, 68, 0.35)',
+                  transition: 'transform 0.15s ease, background 0.15s ease'
+                }}
+                onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.08)')}
+                onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+              >
+                <Trash2 size={18} />
               </button>
             </div>
 
-            <div style={{ padding: 24 }}>
-              <div
-                style={{
-                  height: 260,
-                  borderRadius: 14,
-                  overflow: 'hidden',
-                  position: 'relative',
-                  marginBottom: 18,
-                  border: '1px solid #cbd5e1'
-                }}
-              >
-                <img
-                  src={selectedDetection.image_url}
-                  alt=""
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: 12,
-                    left: 12,
-                    background: 'rgba(15, 23, 42, 0.8)',
-                    color: '#fff',
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    fontSize: '.78rem',
-                    fontWeight: 700
-                  }}
-                >
-                  {selectedDetection.camera_code} • {selectedDetection.location || 'Camera Feed'}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  background: '#f8fafc',
-                  borderRadius: 12,
-                  padding: 16,
-                  border: '1px solid #e2e8f0',
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: 12,
-                  marginBottom: 18
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '.72rem', fontWeight: 800, color: '#64748b' }}>DETECTION TIME</div>
-                  <div style={{ fontSize: '.88rem', fontWeight: 800, color: '#0f172a', marginTop: 2 }}>
-                    {selectedDetection.timestamp}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: '.72rem', fontWeight: 800, color: '#64748b' }}>EVENT TYPE</div>
-                  <div style={{ fontSize: '.88rem', fontWeight: 800, color: '#7c3aed', marginTop: 2, textTransform: 'capitalize' }}>
-                    {selectedDetection.event_type}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: '.72rem', fontWeight: 800, color: '#64748b' }}>COMPANY</div>
-                  <div style={{ fontSize: '.88rem', fontWeight: 700, color: '#334155', marginTop: 2 }}>
-                    {selectedDetection.company_name}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: '.72rem', fontWeight: 800, color: '#64748b' }}>STATUS</div>
-                  <div style={{ fontSize: '.88rem', fontWeight: 700, color: '#ef4444', marginTop: 2 }}>
-                    Unrecognized Face
-                  </div>
-                </div>
-              </div>
-            </div>
-
+            {/* Camera Snapshot Image */}
             <div
               style={{
-                padding: '14px 24px',
-                background: '#f8fafc',
-                borderTop: '1px solid #e2e8f0',
+                borderRadius: 12,
+                overflow: 'hidden',
+                background: '#0f172a',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between'
+                justifyContent: 'center',
+                marginBottom: 14,
+                position: 'relative',
+                maxHeight: 440
               }}
             >
-              <button
-                onClick={() => setSelectedDetection(null)}
+              <img
+                src={selectedDetection.image_url}
+                alt="Anonymous Capture"
                 style={{
-                  background: '#ffffff',
-                  border: '1px solid #cbd5e1',
-                  color: '#475569',
-                  padding: '8px 16px',
-                  borderRadius: 8,
-                  fontWeight: 700,
-                  cursor: 'pointer'
+                  width: '100%',
+                  maxHeight: 440,
+                  objectFit: 'contain',
+                  display: 'block'
                 }}
+              />
+            </div>
+
+            {/* Bottom Info Bar: Centered Timestamp & Close Button */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingTop: 4
+              }}
+            >
+              <div
+                style={{
+                  flex: 1,
+                  textAlign: 'center',
+                  fontSize: '.88rem',
+                  color: '#475569',
+                  fontWeight: 600
+                }}
+              >
+                {selectedDetection.time} ({selectedDetection.event_type})
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDetection(null);
+                  setShowMarkModal(false);
+                }}
+                disabled={converting}
+                style={{
+                  background: '#e2e8f0',
+                  color: '#475569',
+                  border: 'none',
+                  padding: '7px 20px',
+                  borderRadius: 8,
+                  fontSize: '.85rem',
+                  fontWeight: 600,
+                  cursor: converting ? 'not-allowed' : 'pointer',
+                  transition: 'background 0.15s ease'
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#cbd5e1')}
+                onMouseLeave={e => (e.currentTarget.style.background = '#e2e8f0')}
               >
                 Close
               </button>
+            </div>
 
-              <button
-                onClick={() => {
-                  alert(`Enrolling face crop from detection ${selectedDetection.id}...`);
-                  setSelectedDetection(null);
-                }}
+            {/* Inner "Mark Attendance" Modal Overlay (Screenshot 2) */}
+            {showMarkModal && (
+              <div
                 style={{
-                  background: '#7c3aed',
-                  color: '#ffffff',
-                  border: 'none',
-                  padding: '8px 16px',
-                  borderRadius: 8,
-                  fontWeight: 700,
-                  cursor: 'pointer',
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'rgba(15, 23, 42, 0.45)',
+                  backdropFilter: 'blur(3px)',
+                  borderRadius: 20,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 6
+                  justifyContent: 'center',
+                  padding: 20,
+                  zIndex: 20
                 }}
+                onClick={() => setShowMarkModal(false)}
               >
-                <UserPlus size={16} />
-                <span>Register as Employee</span>
-              </button>
-            </div>
+                <div
+                  style={{
+                    background: '#ffffff',
+                    borderRadius: 16,
+                    padding: '24px 28px',
+                    width: '100%',
+                    maxWidth: 390,
+                    boxShadow: '0 20px 40px rgba(0, 0, 0, 0.25)'
+                  }}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <h3
+                    style={{
+                      margin: '0 0 16px 0',
+                      fontSize: '1.2rem',
+                      fontWeight: 800,
+                      color: '#7c3aed'
+                    }}
+                  >
+                    Mark Attendance
+                  </h3>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <label
+                      style={{
+                        display: 'block',
+                        fontSize: '.84rem',
+                        fontWeight: 600,
+                        color: '#334155',
+                        marginBottom: 6
+                      }}
+                    >
+                      Employee
+                    </label>
+                    <select
+                      value={selectedEmpId}
+                      onChange={e => setSelectedEmpId(e.target.value)}
+                      disabled={empLoading || converting}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #cbd5e1',
+                        background: '#f8fafc',
+                        color: '#0f172a',
+                        fontSize: '.85rem',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="">
+                        {empLoading ? 'Loading employees...' : 'Select Employee'}
+                      </option>
+                      {employees.map(emp => (
+                        <option key={emp.emp_id} value={emp.emp_id}>
+                          {emp.name} ({emp.emp_id})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ marginBottom: 22 }}>
+                    <label
+                      style={{
+                        display: 'block',
+                        fontSize: '.84rem',
+                        fontWeight: 600,
+                        color: '#334155',
+                        marginBottom: 6
+                      }}
+                    >
+                      Camera
+                    </label>
+                    <select
+                      value={selectedCamType}
+                      onChange={e => setSelectedCamType(e.target.value)}
+                      disabled={converting}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #cbd5e1',
+                        background: '#f8fafc',
+                        color: '#0f172a',
+                        fontSize: '.85rem',
+                        outline: 'none',
+                        cursor: 'pointer',
+                        textTransform: 'capitalize'
+                      }}
+                    >
+                      <option value="entry">Entry</option>
+                      <option value="exit">Exit</option>
+                    </select>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                      gap: 10
+                    }}
+                  >
+                    <button
+                      type="button"
+                      disabled={converting}
+                      onClick={() => setShowMarkModal(false)}
+                      style={{
+                        background: '#e2e8f0',
+                        color: '#475569',
+                        border: 'none',
+                        padding: '8px 18px',
+                        borderRadius: 8,
+                        fontSize: '.85rem',
+                        fontWeight: 600,
+                        cursor: converting ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleConvertAnonymous}
+                      disabled={!selectedEmpId || converting}
+                      style={{
+                        background: !selectedEmpId || converting ? '#94a3b8' : '#16a34a',
+                        color: '#ffffff',
+                        border: 'none',
+                        padding: '8px 24px',
+                        borderRadius: 8,
+                        fontSize: '.85rem',
+                        fontWeight: 700,
+                        cursor: !selectedEmpId || converting ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6
+                      }}
+                    >
+                      {converting ? (
+                        <>
+                          <Loader2 size={15} className="animate-spin" />
+                          <span>Converting...</span>
+                        </>
+                      ) : (
+                        <span>Convert</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # ── Database ──────────────────────────────────────────────────
-    DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/saas_attendai"
+    DATABASE_URL: str = "postgresql://postgres:daljeet%40123@127.0.0.1:5432/saas_attendai"
     DB_POOL_MIN_SIZE: int = 5
     DB_POOL_MAX_SIZE: int = 20
     DB_COMMAND_TIMEOUT: float = 30.0
